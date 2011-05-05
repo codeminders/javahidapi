@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <assert.h>
+#include <stdlib.h>
 
 #include <jni-stubs/com_codeminders_hidapi_HIDDevice.h>
 #include "hidapi/hidapi.h"
@@ -48,7 +49,7 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_write
     if(!peer) 
     {
         throwIOException(env, peer);
-        return; /* not an error, freed previously */ 
+        return 0; /* not an error, freed previously */ 
     }
 
     jsize bufsize = (*env)->GetArrayLength(env, data);
@@ -58,7 +59,7 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_write
     if(res==-1)
     {
         throwIOException(env, peer);
-        return; /* not an error, freed previously */ 
+        return 0; /* not an error, freed previously */ 
     }
     return res;
 }
@@ -70,7 +71,7 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_read
     if(!peer) 
     {
         throwIOException(env, peer);
-        return; /* not an error, freed previously */ 
+        return 0; /* not an error, freed previously */ 
     }
 
     jsize bufsize = (*env)->GetArrayLength(env, data);
@@ -80,7 +81,7 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_read
     if(read==-1)
     {
         throwIOException(env, peer);
-        return; /* not an error, freed previously */ 
+        return 0; /* not an error, freed previously */ 
     }
     return read;
 }
@@ -126,7 +127,7 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_sendFeatureReport
     if(!peer)
     {
         throwIOException(env, peer);
-        return; /* not an error, freed previously */ 
+        return 0; /* not an error, freed previously */ 
     }
     jsize bufsize = (*env)->GetArrayLength(env, data);
     jbyte *buf = (*env)->GetByteArrayElements(env, data, NULL);
@@ -134,7 +135,7 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_sendFeatureReport
     if(res!=0)
     {
         throwIOException(env, peer);
-        return; /* not an error, freed previously */ 
+        return 0; /* not an error, freed previously */ 
     }
     
     return res;
@@ -147,7 +148,7 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_getFeatureReport
     if(!peer)
     {
         throwIOException(env, peer);
-        return; /* not an error, freed previously */ 
+        return 0; /* not an error, freed previously */ 
     }
 
     jsize bufsize = (*env)->GetArrayLength(env, data);
@@ -158,7 +159,7 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_getFeatureReport
     if(res!=0)
     {
         throwIOException(env, peer);
-        return; /* not an error, freed previously */ 
+        return 0; /* not an error, freed previously */ 
     }
     
     return res;

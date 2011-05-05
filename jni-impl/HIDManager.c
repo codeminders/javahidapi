@@ -99,7 +99,7 @@ Java_com_codeminders_hidapi_HIDManager_listDevices(JNIEnv *env, jclass cls)
     {
         jobject x = createHIDDeviceInfo(env, infoCls, cur_dev);
         if(x == NULL)
-            return; /* exception thrown */ 
+            return NULL; /* exception thrown */ 
 
         (*env)->SetObjectArrayElement(env, result, i, x);
         (*env)->DeleteLocalRef(env, x);

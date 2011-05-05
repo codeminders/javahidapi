@@ -44,7 +44,7 @@ char* convertToUTF8(JNIEnv *env, const wchar_t *str)
         {
             /* Unable to find the exception class, give up. */
             assert(0);
-            return;
+            return NULL;
         }
     
         (*env)->ThrowNew(env, exceptionClass, "iconv_open failed"); 
