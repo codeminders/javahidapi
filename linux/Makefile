@@ -8,9 +8,9 @@
 
 
 JNIOBJS=HIDManager.o HIDDeviceInfo.o HIDDevice.o hid-java.o
-JNIINCLUDES=-I.. -I../jni-impl -I/System/Library/Frameworks/JavaVM.framework/Headers 
-JNILIBS=-l iconv
-JNISHAREDLIB=libhidapi-jni.jnilib
+JNIINCLUDES=-I.. -I../jni-impl -I/usr/lib/jvm/java-6-openjdk/include/
+JNILIBS=
+JNISHAREDLIB=libhidapi-jni.so
 JNISHAREDLIBVER=1.0
 
 CC=gcc
@@ -18,13 +18,13 @@ CXX=g++
 COBJS=hid-libusb.o
 CPPOBJS=../hidtest/hidtest.o
 OBJS=$(COBJS) $(CPPOBJS) $(JNIOBJS)
-CFLAGS+=-I../hidapi -Wall -g -c `pkg-config libusb-1.0 --cflags` $(JNIINCLUDES)
+CFLAGS+=-I../hidapi -g -c `pkg-config libusb-1.0 --cflags` $(JNIINCLUDES)
 LIBS=`pkg-config libusb-1.0 libudev --libs` $(JNILIBS)
 
 all: hidtest $(JNISHAREDLIB)
 
 $(JNISHAREDLIB): $(OBJS)
-	$(CC) -dynamiclib -current_version $(JNISHAREDLIBVER) $(COBJS) $(JNIOBJS) $(LIBS) -o $(JNISHAREDLIB)
+	$(CC) -shared $(COBJS) $(JNIOBJS) $(LIBS) -o $(JNISHAREDLIB)
 
 hidtest: $(OBJS)
 	g++ -Wall -g $^ $(LIBS) -o hidtest
