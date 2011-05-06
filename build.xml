@@ -9,6 +9,7 @@
         <pathelement location="bin"/>
         <pathelement location="${ANT_HOME}"/>
     </path>
+
     <target name="init">
         <mkdir dir="bin"/>
         <copy includeemptydirs="false" todir="bin">
@@ -18,12 +19,15 @@
             </fileset>
         </copy>
     </target>
+
     <target name="clean">
         <delete dir="bin"/>
     </target>
+
     <target depends="clean" name="cleanall"/>
     <target depends="build-subprojects,build-project" name="build"/>
     <target name="build-subprojects"/>
+
     <target depends="init" name="build-project">
         <echo message="${ant.project.name}: ${ant.file}"/>
         <javac debug="true" debuglevel="${debuglevel}" destdir="bin" source="${source}" target="${target}">
@@ -31,10 +35,19 @@
             <classpath refid="hidapi.classpath"/>
         </javac>
     </target>
-    <target name="run">
+
+    <target name="run" depends="build-project">
         <java classname="com.codeminders.hidapi.HIDAPITest" failonerror="true" fork="yes">
             <classpath refid="hidapi.classpath"/>
             <jvmarg value="-Djava.library.path=${basedir}/mac"/>
         </java>
+    </target>
+
+    <target name="jar" depends="build-project">
+      <jar destfile="bin/hidapi.jar"
+           basedir="bin"
+           includes="com/codeminders/hidapi/**"
+           excludes="**/HIDAPITest.class"
+           />
     </target>
 </project>
