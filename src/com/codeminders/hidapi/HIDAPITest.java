@@ -41,11 +41,10 @@ public class HIDAPITest
                 while(true)
                 {
                     int n = dev.read(buf);
-                    System.err.print(""+n+" bytes read:\n\t");
                     for(int i=0; i<n; i++)
                     {
                         int v = buf[i];
-                        if (v<0) v = n+256;
+                        if (v<0) v = v+256;
                         String hs = Integer.toHexString(v);
                         if (v<16) 
                             System.err.print("0");
