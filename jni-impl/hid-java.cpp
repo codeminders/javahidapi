@@ -66,7 +66,7 @@ char* convertToUTF8(JNIEnv *env, const wchar_t *str)
     char *uval = (char *)str;
     
     size_t u8l;
-    char *u8 = malloc(len*6+1);
+    char *u8 = (char *) malloc(len*6+1);
     char *u8p = u8;
     iconv(cd, &uval, &ulen, &u8p, &u8l);
     *u8p='\0';
