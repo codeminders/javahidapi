@@ -24,7 +24,7 @@ LIBS=-framework IOKit -framework CoreFoundation $(JNILIBS)
 all: hidtest $(JNISHAREDLIB)
 
 $(JNISHAREDLIB): $(OBJS)
-	$(CC) -dynamiclib -current_version $(JNISHAREDLIBVER) $(COBJS) $(JNIOBJS) $(LIBS) -o $(JNISHAREDLIB)
+	$(CXX) -dynamiclib -current_version $(JNISHAREDLIBVER) $(COBJS) $(JNIOBJS) $(LIBS) -o $(JNISHAREDLIB)
 
 hidtest: $(OBJS)
 	$(CXX) -g $^ $(LIBS) -o hidtest
