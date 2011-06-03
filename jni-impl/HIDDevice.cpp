@@ -10,23 +10,23 @@
 
 static hid_device* getPeer(JNIEnv *env, jobject self)
 {
-    jclass cls = (*env)->FindClass(env, DEV_CLASS);
+    jclass cls = env->FindClass(DEV_CLASS);
     assert(cls!=NULL);
     if (cls == NULL) 
         return NULL;
-    jfieldID fid = (*env)->GetFieldID(env, cls, "peer", "J");
-    return (hid_device*)((*env)->GetLongField(env, self, fid));
+    jfieldID fid = env->GetFieldID(cls, "peer", "J");
+    return (hid_device*)(env->GetLongField(self, fid));
 }
 
 static void setPeer(JNIEnv *env, jobject self, hid_device *peer)
 {
-    jclass cls = (*env)->FindClass(env, DEV_CLASS);
+    jclass cls = env->FindClass(DEV_CLASS);
     assert(cls!=NULL);
     if (cls == NULL) 
         return; //TODO: exception will be raised by FindClass
-    jfieldID fid = (*env)->GetFieldID(env, cls, "peer", "J");
+    jfieldID fid = env->GetFieldID(cls, "peer", "J");
     jlong peerj = (jlong)peer;
-    (*env)->SetLongField(env, self, fid, peerj);     
+    env->SetLongField(self, fid, peerj);     
 }
 
 JNIEXPORT void JNICALL Java_com_codeminders_hidapi_HIDDevice_close
@@ -52,10 +52,10 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_write
         return 0; /* not an error, freed previously */ 
     }
 
-    jsize bufsize = (*env)->GetArrayLength(env, data);
-    jbyte *buf = (*env)->GetByteArrayElements(env, data, NULL);
-    int res = hid_write(peer, buf, bufsize);
-    (*env)->ReleaseByteArrayElements(env, data, buf, JNI_ABORT);
+    jsize bufsize = env->GetArrayLength(data);
+    jbyte *buf = env->GetByteArrayElements(data, NULL);
+    int res = hid_write(peer, (const unsigned char*) buf, bufsize);
+    env->ReleaseByteArrayElements(data, buf, JNI_ABORT);
     if(res==-1)
     {
         throwIOException(env, peer);
@@ -74,10 +74,10 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_read
         return 0; /* not an error, freed previously */ 
     }
 
-    jsize bufsize = (*env)->GetArrayLength(env, data);
-    jbyte *buf = (*env)->GetByteArrayElements(env, data, NULL);
-    int read = hid_read(peer, buf, bufsize);
-    (*env)->ReleaseByteArrayElements(env, data, buf, read==-1?JNI_ABORT:0);
+    jsize bufsize = env->GetArrayLength(data);
+    jbyte *buf = env->GetByteArrayElements(data, NULL);
+    int read = hid_read(peer, (unsigned char*) buf, bufsize);
+    env->ReleaseByteArrayElements(data, buf, read==-1?JNI_ABORT:0);
     if(read==-1)
     {
         throwIOException(env, peer);
@@ -129,9 +129,9 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_sendFeatureReport
         throwIOException(env, peer);
         return 0; /* not an error, freed previously */ 
     }
-    jsize bufsize = (*env)->GetArrayLength(env, data);
-    jbyte *buf = (*env)->GetByteArrayElements(env, data, NULL);
-    int res = hid_send_feature_report(peer, buf, bufsize);
+    jsize bufsize = env->GetArrayLength(data);
+    jbyte *buf = env->GetByteArrayElements(data, NULL);
+    int res = hid_send_feature_report(peer, (const unsigned char*) buf, bufsize);
     if(res!=0)
     {
         throwIOException(env, peer);
@@ -151,10 +151,10 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_getFeatureReport
         return 0; /* not an error, freed previously */ 
     }
 
-    jsize bufsize = (*env)->GetArrayLength(env, data);
-    jbyte *buf = (*env)->GetByteArrayElements(env, data, NULL);
-    int res = hid_read(peer, buf, bufsize);
-    (*env)->ReleaseByteArrayElements(env, data, buf, res==-1?JNI_ABORT:0);
+    jsize bufsize = env->GetArrayLength(data);
+    jbyte *buf = env->GetByteArrayElements(data, NULL);
+    int res = hid_read(peer, (unsigned char*) buf, bufsize);
+    env->ReleaseByteArrayElements(data, buf, res==-1?JNI_ABORT:0);
 
     if(res!=0)
     {
@@ -187,7 +187,7 @@ JNIEXPORT jstring JNICALL Java_com_codeminders_hidapi_HIDDevice_getManufacturerS
     }
         
     char *u8 = convertToUTF8(env, data);
-    jstring string = (*env)->NewStringUTF(env, u8);
+    jstring string = env->NewStringUTF(u8);
     free(u8);
     
     return string;
@@ -217,7 +217,7 @@ JNIEXPORT jstring JNICALL Java_com_codeminders_hidapi_HIDDevice_getProductString
     }
        
     char *u8 = convertToUTF8(env, data);
-    jstring string = (*env)->NewStringUTF(env, u8);
+    jstring string = env->NewStringUTF(u8);
     free(u8);
     
     return string;
@@ -245,7 +245,7 @@ JNIEXPORT jstring JNICALL Java_com_codeminders_hidapi_HIDDevice_getSerialNumberS
     }
         
     char *u8 = convertToUTF8(env, data);
-    jstring string = (*env)->NewStringUTF(env, u8);
+    jstring string = env->NewStringUTF(u8);
     free(u8);
     
     return string;
@@ -273,7 +273,7 @@ JNIEXPORT jstring JNICALL Java_com_codeminders_hidapi_HIDDevice_getIndexedString
     }
         
     char *u8 = convertToUTF8(env, data);
-    jstring string = (*env)->NewStringUTF(env, u8);
+    jstring string = env->NewStringUTF(u8);
     free(u8);
     
     return string;

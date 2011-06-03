@@ -1,0 +1,5 @@
+syntax: glob
+windows/*.user
+windows/*.ncb
+windows/*.suo
+windows/Debug

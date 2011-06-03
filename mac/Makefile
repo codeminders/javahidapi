@@ -29,8 +29,8 @@ $(JNISHAREDLIB): $(OBJS)
 hidtest: $(OBJS)
 	$(CXX) -g $^ $(LIBS) -o hidtest
 
-%.o: ../jni-impl/%.c
-	$(CC) -c $(CFLAGS) $< -o $@
+%.o: ../jni-impl/%.cpp
+	$(CXX) $(CFLAGS) $< -o $@
 
 $(COBJS): %.o: %.c
 	$(CC) $(CFLAGS) $< -o $@
