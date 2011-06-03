@@ -12,8 +12,8 @@ static void setIntField(JNIEnv *env,
                         const char *name,
                         int val)
 {
-    jfieldID fid = (*env)->GetFieldID(env, cls, name, "I");
-    (*env)->SetIntField(env, obj, fid, val);
+    jfieldID fid = env->GetFieldID(cls, name, "I");
+    env->SetIntField(obj, fid, val);
 }
 
 static void setStringField(JNIEnv *env,
@@ -22,8 +22,8 @@ static void setStringField(JNIEnv *env,
                            const char *name,
                            const char *val)
 {
-    jfieldID fid = (*env)->GetFieldID(env, cls, name, "Ljava/lang/String;");
-    (*env)->SetObjectField(env, obj, fid,  val ? (*env)->NewStringUTF(env, val) : NULL);
+    jfieldID fid = env->GetFieldID(cls, name, "Ljava/lang/String;");
+    env->SetObjectField(obj, fid,  val ? env->NewStringUTF(val) : NULL);
 }
 
 static void setUStringField(JNIEnv *env,
@@ -32,25 +32,25 @@ static void setUStringField(JNIEnv *env,
                            const char *name,
                            const wchar_t *val)
 {
-    jfieldID fid = (*env)->GetFieldID(env, cls, name, "Ljava/lang/String;");
+    jfieldID fid = env->GetFieldID(cls, name, "Ljava/lang/String;");
 
     if(val)
     {
         char *u8 = convertToUTF8(env, val);
-        (*env)->SetObjectField(env, obj, fid, (*env)->NewStringUTF(env, u8));
+        env->SetObjectField(obj, fid, env->NewStringUTF(u8));
         free(u8);
     }
     else
-        (*env)->SetObjectField(env, obj, fid, NULL);
+        env->SetObjectField(obj, fid, NULL);
 }
 
 static jobject createHIDDeviceInfo(JNIEnv *env, jclass cls, struct hid_device_info *dev)
 {
-    jmethodID cid = (*env)->GetMethodID(env, cls, "<init>", "()V");
+    jmethodID cid = env->GetMethodID(cls, "<init>", "()V");
     if (cid == NULL) 
         return NULL; /* exception thrown. */ 
 
-    jobject result = (*env)->NewObject(env, cls, cid);
+    jobject result = env->NewObject(cls, cid);
 
     setIntField(env, cls, result, "vendor_id", dev->vendor_id);
     setIntField(env, cls, result, "product_id", dev->product_id);
@@ -88,11 +88,11 @@ Java_com_codeminders_hidapi_HIDManager_listDevices(JNIEnv *env, jclass cls)
 		cur_dev = cur_dev->next;
 	}
 
-    jclass infoCls = (*env)->FindClass(env, DEVINFO_CLASS);
+    jclass infoCls = env->FindClass(DEVINFO_CLASS);
     if (infoCls == NULL) {
         return NULL; /* exception thrown */
     }
-    jobjectArray result= (*env)->NewObjectArray(env, size, infoCls, NULL);
+    jobjectArray result= env->NewObjectArray(size, infoCls, NULL);
 	cur_dev = devs;
     int i=0;
 	while(cur_dev)
@@ -101,15 +101,15 @@ Java_com_codeminders_hidapi_HIDManager_listDevices(JNIEnv *env, jclass cls)
         if(x == NULL)
             return NULL; /* exception thrown */ 
 
-        (*env)->SetObjectArrayElement(env, result, i, x);
-        (*env)->DeleteLocalRef(env, x);
+        env->SetObjectArrayElement(result, i, x);
+        env->DeleteLocalRef(x);
         i++;
 		cur_dev = cur_dev->next;
 	}
 	hid_free_enumeration(devs);
 	
     /* Free local references */
-    (*env)->DeleteLocalRef(env, cls);
+    env->DeleteLocalRef(cls);
     
     return result;
 }
