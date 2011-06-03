@@ -24,7 +24,7 @@ LIBS=`pkg-config libusb-1.0 libudev --libs` $(JNILIBS)
 all: hidtest $(JNISHAREDLIB)
 
 $(JNISHAREDLIB): $(OBJS)
-	$(CC) -shared $(COBJS) $(JNIOBJS) $(LIBS) -o $(JNISHAREDLIB)
+	$(CXX) -shared $(COBJS) $(JNIOBJS) $(LIBS) -o $(JNISHAREDLIB)
 
 hidtest: $(OBJS)
 	g++ -Wall -g $^ $(LIBS) -o hidtest
