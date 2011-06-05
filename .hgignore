@@ -1,5 +1,8 @@
 syntax: glob
 windows/*.user
 windows/*.ncb
+windows/*.sdf
+windows/*.opensdf
+windows/ipch
 windows/*.suo
 windows/Debug
