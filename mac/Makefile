@@ -6,6 +6,7 @@
 # 2010-07-03
 ###########################################
 
+#ARCHFLAGS=-m32
 
 JNIOBJS=HIDManager.o HIDDeviceInfo.o HIDDevice.o hid-java.o
 JNIINCLUDES=-I.. -I../jni-impl -I/System/Library/Frameworks/JavaVM.framework/Headers 
@@ -18,16 +19,16 @@ CXX=g++
 COBJS=hid.o
 CPPOBJS=../hidtest/hidtest.o
 OBJS=$(COBJS) $(CPPOBJS) $(JNIOBJS)
-CFLAGS+=-I../hidapi -g -c $(JNIINCLUDES)
+CFLAGS+=$(ARCHFLAGS) -I../hidapi -g -c $(JNIINCLUDES)
 LIBS=-framework IOKit -framework CoreFoundation $(JNILIBS)
 
 all: hidtest $(JNISHAREDLIB)
 
 $(JNISHAREDLIB): $(OBJS)
-	$(CXX) -dynamiclib -current_version $(JNISHAREDLIBVER) $(COBJS) $(JNIOBJS) $(LIBS) -o $(JNISHAREDLIB)
+	$(CXX) $(ARCHFLAGS) -dynamiclib -current_version $(JNISHAREDLIBVER) $(COBJS) $(JNIOBJS) $(LIBS) -o $(JNISHAREDLIB)
 
 hidtest: $(OBJS)
-	$(CXX) -g $^ $(LIBS) -o hidtest
+	$(CXX) $(ARCHFLAGS) -g $^ $(LIBS) -o hidtest
 
 %.o: ../jni-impl/%.cpp
 	$(CXX) $(CFLAGS) $< -o $@
