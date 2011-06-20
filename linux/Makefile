@@ -18,7 +18,7 @@ CXX=g++
 COBJS=hid-libusb.o
 CPPOBJS=../hidtest/hidtest.o
 OBJS=$(COBJS) $(CPPOBJS) $(JNIOBJS)
-CFLAGS+=-I../hidapi -g -c `pkg-config libusb-1.0 --cflags` $(JNIINCLUDES)
+CFLAGS+=-fPIC -I../hidapi -g -c `pkg-config libusb-1.0 --cflags` $(JNIINCLUDES)
 LIBS=`pkg-config libusb-1.0 libudev --libs` $(JNILIBS)
 
 all: hidtest $(JNISHAREDLIB)
