@@ -4,21 +4,93 @@ package com.codeminders.hidapi;
 import java.io.IOException;
 
 /**
- * High-level interface to enumerate, find and open HID devices
- * 
+ * HIDManager.java 
+ * High-level interface to enumerate, find , open HID devices and 
+ * get connect/disconnect notifications.
+ *
+ * @version 1.0 
  * @author lord
  * 
  */
-public class HIDManager
+public abstract class HIDManager
 {
+    protected long peer;
+
+    /**
+     * Abstract callback method which will be called when HID device is connected.
+     *
+     * @param dev Reference to the hid device info object.
+     */
+    public abstract void deviceAdded( HIDDeviceInfo dev);
+    
+    /**
+     * Abstract callback method which will be called when new HID device is disconnected.
+     *
+     * @param dev Reference to the hid device info object.
+    */
+    public abstract void deviceRemoved( HIDDeviceInfo dev);
+     
+    /**
+     * Get list of all the HID devices attached to the system.
+     *
+     * @return list of devices
+     * @throws IOException
+     */
     public static native HIDDeviceInfo[] listDevices() throws IOException;
+
+    /**
+     * Initializing the underlying HID layer.
+     *
+     * @throws IOException
+     */
+    private native void init() throws IOException;
+
+    /**
+     * Release underlying HID layer. This method must be called when
+     * <code>HIDManager<code> object is no longer needed. Failure to
+     * do so could cause memory leaks or unterminated threads. It is
+     * safe to call this method multiple times.
+     *
+     */
+    public native void release();
+    
+    /**
+     * Constructor to create HID object manager. It must be invoked
+     * from subclass constructor to ensure proper initialization.
+     *
+     * @throws IOException
+     */
+    protected HIDManager() throws IOException
+    {
+        init();
+    }
+
+    /**
+     * Release HID manager. Will call release().
+     *
+     * @throws Throwable
+     */
+    protected void finalize() throws Throwable
+    {
+        // It is important to call release() if user forgot to do so,
+        // since it frees pointer internal data structures and stops
+        // thread under MacOS
+        try
+        {
+           release();
+        } finally
+        {
+           super.finalize();
+        }
+    }
 
     /**
      * Convenience method to find and open device by path
      * 
-     * @param path
-     * @return
-     * @throws IOException
+     * @param path USB device path
+     * @return open device reference <code>HIDDevice<code> object
+     * @throws IOException in case of internal error
+     * @throws HIDDeviceNotFoundException if devive was not found
      */
     public static HIDDevice openByPath(String path) throws IOException, HIDDeviceNotFoundException
     {
@@ -32,14 +104,15 @@ public class HIDManager
     }
 
     /**
-     * Convenience method to open a HID device using a Vendor ID (VID), Product
-     * ID (PID) and optionally a serial number.
+     * Convenience method to open a HID device using a Vendor ID
+     * (VID), Product ID (PID) and optionally a serial number.
      * 
-     * @param vendor_id
-     * @param product_id
-     * @param serial_number
-     * @return
-     * @throws IOException
+     * @param vendor_id USB vendor ID
+     * @param product_id USB product ID
+     * @param serial_number USB device serial number (could be <code>null<code>)
+     * @return open device
+     * @throws IOException in case of internal error
+     * @throws HIDDeviceNotFoundException if devive was not found
      */
     public static HIDDevice openById(int vendor_id, int product_id, String serial_number) throws IOException, HIDDeviceNotFoundException
     {
