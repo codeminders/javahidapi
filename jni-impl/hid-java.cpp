@@ -39,18 +39,17 @@ void throwIOException(JNIEnv *env, hid_device *device)
 char* convertToUTF8(JNIEnv *env, const wchar_t *str)
 {
 #ifdef _WIN32
-	size_t sz = WideCharToMultiByte(CP_UTF8, 0, str, -1, NULL, 0, NULL, NULL);    
-	char *ret = (char *) malloc(sz + 1); 
-	WideCharToMultiByte(CP_UTF8, 0, str, -1, ret, sz, NULL, NULL);    
-	return ret;
+    size_t sz = WideCharToMultiByte(CP_UTF8, 0, str, -1, NULL, 0, NULL, NULL);    
+    char *ret = (char *) malloc(sz + 1); 
+    WideCharToMultiByte(CP_UTF8, 0, str, -1, ret, sz, NULL, NULL);    
+    return ret;
 #else
     iconv_t cd = iconv_open ("UTF-8", "WCHAR_T");
     if (cd == (iconv_t) -1)
     {
         /* Something went wrong. We could not recover from this  */
         
-        jclass exceptionClass = 
-        exceptionClass = env->FindClass("java/lang/Error");
+        jclass exceptionClass = env->FindClass("java/lang/Error");
         if (exceptionClass == NULL) 
         {
             /* Unable to find the exception class, give up. */
