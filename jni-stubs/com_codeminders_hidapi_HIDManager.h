@@ -15,6 +15,22 @@ extern "C" {
 JNIEXPORT jobjectArray JNICALL Java_com_codeminders_hidapi_HIDManager_listDevices
   (JNIEnv *, jclass);
 
+/*
+ * Class:     com_codeminders_hidapi_HIDManager
+ * Method:    init
+ * Signature: ()V
+ */
+JNIEXPORT void JNICALL Java_com_codeminders_hidapi_HIDManager_init
+  (JNIEnv *, jobject);
+
+/*
+ * Class:     com_codeminders_hidapi_HIDManager
+ * Method:    release
+ * Signature: ()V
+ */
+JNIEXPORT void JNICALL Java_com_codeminders_hidapi_HIDManager_release
+  (JNIEnv *, jobject);
+
 #ifdef __cplusplus
 }
 #endif

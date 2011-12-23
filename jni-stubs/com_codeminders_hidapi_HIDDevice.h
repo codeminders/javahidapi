@@ -95,14 +95,6 @@ JNIEXPORT jstring JNICALL Java_com_codeminders_hidapi_HIDDevice_getSerialNumberS
 JNIEXPORT jstring JNICALL Java_com_codeminders_hidapi_HIDDevice_getIndexedString
   (JNIEnv *, jobject, jint);
 
-/*
- * Class:     com_codeminders_hidapi_HIDDevice
- * Method:    getLastError
- * Signature: ()Ljava/lang/String;
- */
-JNIEXPORT jstring JNICALL Java_com_codeminders_hidapi_HIDDevice_getLastError
-  (JNIEnv *, jobject);
-
 #ifdef __cplusplus
 }
 #endif

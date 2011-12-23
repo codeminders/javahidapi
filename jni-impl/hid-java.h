@@ -3,6 +3,13 @@
 
 #define DEV_CLASS "com/codeminders/hidapi/HIDDevice"
 #define DEVINFO_CLASS "com/codeminders/hidapi/HIDDeviceInfo"
+#define HID_MANAGER_CLASS "com/codeminders/hidapi/HIDManager"
+
+
+#if defined(__APPLE__)
+#define MAC_OS_X
+#endif
+
 
 #ifdef __cplusplus
 extern "C" {
