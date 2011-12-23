@@ -22,6 +22,7 @@
 
     <target name="clean">
         <delete dir="bin"/>
+        <delete dir="doc/api"/>
     </target>
 
     <target depends="clean" name="cleanall"/>
@@ -30,10 +31,45 @@
 
     <target depends="init" name="build-project">
         <echo message="${ant.project.name}: ${ant.file}"/>
-        <javac debug="true" debuglevel="${debuglevel}" destdir="bin" source="${source}" target="${target}">
+        <javac includeantruntime="true" debug="true" debuglevel="${debuglevel}" destdir="bin" source="${source}" target="${target}">
             <src path="src"/>
             <classpath refid="hidapi.classpath"/>
         </javac>
+    </target>
+
+    <target name="jni-stubs" depends="build-project">
+      <javah destdir="jni-stubs" classpath="bin">
+        <class name="com.codeminders.hidapi.HIDManager"/>
+        <class name="com.codeminders.hidapi.HIDDevice"/>
+        <class name="com.codeminders.hidapi.HIDDeviceInfo"/>
+      </javah>    
+    </target>
+
+    <target name="print-jni-types" depends="build-project">
+      <exec executable="javap">
+        <arg value="-private" />
+        <arg value="-s" />
+        <arg value="-classpath" />
+        <arg value="bin" />
+        <arg value="com.codeminders.hidapi.HIDDevice" />
+      </exec>
+
+      <exec executable="javap">
+        <arg value="-private" />
+        <arg value="-s" />
+        <arg value="-classpath" />
+        <arg value="bin" />
+        <arg value="com.codeminders.hidapi.HIDManager" />
+      </exec>
+
+      <exec executable="javap">
+        <arg value="-private" />
+        <arg value="-s" />
+        <arg value="-classpath" />
+        <arg value="bin" />
+        <arg value="com.codeminders.hidapi.HIDDeviceInfo" />
+      </exec>
+
     </target>
 
     <target name="run" depends="build-project">
@@ -50,4 +86,21 @@
            excludes="**/HIDAPITest.class"
            />
     </target>
+    
+    <target name="javadoc">
+      <javadoc
+         destdir="doc/api"
+         author="true"
+         version="true"
+         use="true"
+         windowtitle="HID API">
+        
+        <fileset dir="src" defaultexcludes="yes">
+          <include name="com/codeminders/hidapi/**"/>
+          <exclude name="com/codeminders/hidapi/*Test*"/>
+        </fileset>
+
+      </javadoc>
+    </target>
+
 </project>
