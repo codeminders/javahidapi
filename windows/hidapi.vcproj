@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="Windows-1252"?>
 <VisualStudioProject
 	ProjectType="Visual C++"
-	Version="9,00"
+	Version="9.00"
 	Name="hidapi"
 	ProjectGUID="{A107C21C-418A-4697-BB10-20C3AA60E2E4}"
 	RootNamespace="hidapi"
@@ -41,7 +41,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
-				AdditionalIncludeDirectories="..\hidapi;..;&quot;$(JAVA_HOME)\include&quot;;&quot;$(JAVA_HOME)\include\win32&quot;"
+				AdditionalIncludeDirectories="..\hidapi"
 				PreprocessorDefinitions="WIN32;_DEBUG;_WINDOWS;_USRDLL;HIDAPI_EXPORTS"
 				MinimalRebuild="true"
 				BasicRuntimeChecks="3"
@@ -62,11 +62,9 @@
 			<Tool
 				Name="VCLinkerTool"
 				AdditionalDependencies="setupapi.lib"
-				OutputFile="$(OutDir)\$(ProjectName)-jni.dll"
 				LinkIncremental="2"
 				GenerateDebugInformation="true"
 				SubSystem="2"
-				ImportLibrary="$(TargetDir)$(TargetName)-jni.lib"
 				TargetMachine="1"
 			/>
 			<Tool
@@ -177,23 +175,7 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File
-				RelativePath="..\jni-impl\hid-java.cpp"
-				>
-			</File>
-			<File
-				RelativePath=".\hid.cpp"
-				>
-			</File>
-			<File
-				RelativePath="..\jni-impl\HIDDevice.cpp"
-				>
-			</File>
-			<File
-				RelativePath="..\jni-impl\HIDDeviceInfo.cpp"
-				>
-			</File>
-			<File
-				RelativePath="..\jni-impl\HIDManager.cpp"
+				RelativePath=".\hid.c"
 				>
 			</File>
 		</Filter>
