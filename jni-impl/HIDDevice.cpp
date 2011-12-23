@@ -132,7 +132,7 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_sendFeatureReport
     jsize bufsize = env->GetArrayLength(data);
     jbyte *buf = env->GetByteArrayElements(data, NULL);
     int res = hid_send_feature_report(peer, (const unsigned char*) buf, bufsize);
-    if(res!=0)
+    if(res==-1)
     {
         throwIOException(env, peer);
         return 0; /* not an error, freed previously */ 
@@ -156,7 +156,7 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_getFeatureReport
     int res = hid_read(peer, (unsigned char*) buf, bufsize);
     env->ReleaseByteArrayElements(data, buf, res==-1?JNI_ABORT:0);
 
-    if(res!=0)
+    if(res==-1)
     {
         throwIOException(env, peer);
         return 0; /* not an error, freed previously */ 
@@ -180,8 +180,8 @@ JNIEXPORT jstring JNICALL Java_com_codeminders_hidapi_HIDDevice_getManufacturerS
     if(res < 0)
     {
         /* We decided not to treat this as an error, but return an empty string in this case
-        throwIOException(env, peer);
-        return NULL;
+           throwIOException(env, peer);
+           return NULL;
         */
         data[0] = 0;
     }
@@ -250,7 +250,7 @@ JNIEXPORT jstring JNICALL Java_com_codeminders_hidapi_HIDDevice_getSerialNumberS
     
     return string;
 }
-
+    
 JNIEXPORT jstring JNICALL Java_com_codeminders_hidapi_HIDDevice_getIndexedString
   (JNIEnv *env, jobject self, jint index)
 {
