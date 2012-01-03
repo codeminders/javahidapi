@@ -80,6 +80,16 @@ public class HIDDevice
     public native int write(byte[] data) throws IOException;
     
     /**
+     * Write an Output Report to a HID device.
+     *
+     * @param data the data to send, including the report number as the first byte
+     * @param milliseconds parameter controls how many milliseconds to wait for the data to be written.
+     * @return the actual number of bytes written
+     * @throws IOException if write error occured
+     */
+    public native int  writeTimeout(byte[] data, int milliseconds) throws IOException;
+    
+    /**
      * Read an Input Report to a HID device.
      *
      * @param buf a buffer to put the read data into
@@ -87,6 +97,17 @@ public class HIDDevice
      * @throws IOException if read error occured
      */
     public native int read(byte[] buf) throws IOException;
+    
+    /**
+     * Read an Input report from a HID device with timeout.
+     *
+     * @param buf a buffer to put the read data into.
+     * @param milliseconds a timeout in milliseconds or -1 for blocking wait.
+     * @return the number of bytes to read. For devices with
+     * multiple reports, make sure to read an extra byte for
+     * the report number.
+     */
+    public native int readTimeout(byte[] buf, int milliseconds);
     
     /** 
      * Enable blocking reads for this <code>HIDDevice</code> object.
