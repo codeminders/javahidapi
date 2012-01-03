@@ -1247,11 +1247,66 @@ static int set_report(hid_device *dev, IOHIDReportType type, const unsigned char
     return -1;
 }
 
+static void output_callback(void *context, IOReturn ret, void *sender,
+                            IOHIDReportType type, uint32_t id, uint8_t *data, CFIndex len)
+{
+#ifdef HID_DEBUG    
+    printf("output_callback, r=%d\n", ret);
+#endif
+    if (ret == kIOReturnSuccess) {
+        *(int *)context = (int)len;
+    } else {
+        //  no timeout  
+        *(int *)context = 0;
+    }
+}
+
+static int set_report_timeout(hid_device *dev, IOHIDReportType type, const unsigned char *data, size_t length, int milliseconds)
+{
+    const unsigned char *data_to_send;
+    size_t length_to_send;
+    IOReturn res;
+    
+    /* Return if the device has been disconnected. */
+    if (dev->disconnected)
+        return -1;
+    
+    if (data[0] == 0x0) {
+        /* Not using numbered Reports.
+         Don't send the report number. */
+        data_to_send = data+1;
+        length_to_send = length-1;
+    }
+    else {
+        /* Using numbered Reports.
+         Send the Report Number */
+        data_to_send = data;
+        length_to_send = length;
+    }
+    
+    if (!dev->disconnected) {
+        IOHIDDeviceSetReportWithCallback(dev->device_handle, 
+                                         type,
+                                         data[0],
+                                         data_to_send, length_to_send, 
+                                         (double)milliseconds / 1000.0, 
+                                         output_callback, &res);
+        return res;
+    }
+    
+    return -1;
+}
+
+
 int HID_API_EXPORT hid_write(hid_device *dev, const unsigned char *data, size_t length)
 {
     return set_report(dev, kIOHIDReportTypeOutput, data, length);
 }
 
+int HID_API_EXPORT hid_write_timeout(hid_device *dev, const unsigned char *data, size_t length, int milliseconds)
+{
+    return set_report_timeout(dev, kIOHIDReportTypeOutput, data, length, milliseconds);
+}
 /* Helper function, so that this isn't duplicated in hid_read(). */
 static int return_data(hid_device *dev, unsigned char *data, size_t length)
 {
@@ -1265,7 +1320,7 @@ static int return_data(hid_device *dev, unsigned char *data, size_t length)
     free(rpt);
     return (int)len;
 }
-
+    
 static int cond_wait(const hid_device *dev, pthread_cond_t *cond, pthread_mutex_t *mutex)
 {
     while (!dev->input_reports) {
