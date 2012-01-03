@@ -631,6 +631,34 @@ hid_device * HID_API_EXPORT hid_open_path(const char *path)
 }
 
 
+int HID_API_EXPORT hid_write_timeout(hid_device *dev, const unsigned char *data, size_t length, int milliseconds)
+{
+    int bytes_written;
+    
+    if (milliseconds != 0) {
+        /* milliseconds is -1 or > 0. In both cases, we want to
+         call poll() and wait for data to arrive. -1 means
+         INFINITE. */
+        int ret;
+        struct pollfd fds;
+        
+        fds.fd = dev->device_handle;
+        fds.events = POLLOUT;
+        fds.revents = 0;
+        ret = poll(&fds, 1, milliseconds);
+        if (ret == -1 || ret == 0)
+        /* Error or timeout */
+            return ret;
+    }
+    
+    bytes_written = write(dev->device_handle, data, length);
+    
+    if (bytes_written < 0 && errno == EAGAIN)
+        bytes_written = 0;
+    
+    return bytes_written;
+}
+
 int HID_API_EXPORT hid_write(hid_device *dev, const unsigned char *data, size_t length)
 {
     int bytes_written;
@@ -741,7 +769,7 @@ static struct hid_device_info* hid_device_info_create(struct udev_device *hid_de
     unsigned short dev_pid;
     size_t len = 0;
     
-      if( !hid_dev){
+    if(!hid_dev){
         return NULL;
     }
     
@@ -830,13 +858,13 @@ static void hid_device_info_free(struct hid_device_info *dev_info)
 {
     if(dev_info){
         if(dev_info->path)
-          free(dev_info->path);
+           free(dev_info->path);
         if(dev_info->serial_number)
-          free(dev_info->serial_number);
+           free(dev_info->serial_number);
         if(dev_info->manufacturer_string)
-          free(dev_info->manufacturer_string);
+           free(dev_info->manufacturer_string);
         if(dev_info->product_string)
-          free(dev_info->product_string);
+           free(dev_info->product_string);
         free(dev_info);
     }
 }
@@ -844,7 +872,7 @@ static void hid_device_info_free(struct hid_device_info *dev_info)
 static void  hid_device_callback_connect_free(hid_device_callback_connect *dev_connect)
 {
     if(dev_connect){
-        free(dev_connect);
+       free(dev_connect);
     }
 }
 
@@ -876,7 +904,7 @@ static void hid_device_matching_callback_result(struct udev_device *dev_ref)
     hid_device_callback_connect *c = NULL;
     
     if(NULL!=connect_device_info){
-        hid_device_info_free(connect_device_info);
+       hid_device_info_free(connect_device_info);
     }
     connect_device_info = hid_device_info_create(dev_ref);
     
@@ -931,7 +959,7 @@ static void hid_remove_notify(udev_notify *dev)
     }
     else
     {
-        while( c ){
+        while ( c ) {
             if (c->next) {
                 if (c->next == dev) {
                     c->next = c->next->next;

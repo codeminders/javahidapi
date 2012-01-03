@@ -140,8 +140,10 @@ struct hid_device_ {
     void *last_error_str;
     DWORD last_error_num;
     BOOL read_pending;
+    BOOL write_pending;
     char *read_buf;
-    OVERLAPPED ol;
+    OVERLAPPED ol_read;
+    OVERLAPPED ol_write;
     int ref_count;
     hid_device *next;
 };
@@ -237,8 +239,10 @@ static hid_device *new_hid_device()
     dev->read_buf = NULL;
     dev->next = NULL;
     dev->ref_count = 1;
-    memset(&dev->ol, 0, sizeof(dev->ol));
-    dev->ol.hEvent = CreateEvent(NULL, FALSE, FALSE /*inital state f=nonsignaled*/, NULL);
+    memset(&dev->ol_read, 0, sizeof(dev->ol_read));
+    memset(&dev->ol_write, 0, sizeof(dev->ol_write));
+    dev->ol_read.hEvent = CreateEvent(NULL, FALSE, FALSE /*inital state f=nonsignaled*/, NULL);
+    dev->ol_write.hEvent = CreateEvent(NULL, FALSE, FALSE /*inital state f=nonsignaled*/, NULL);
     if(NULL == device_list_mutex)
     {
         device_list_mutex = CreateMutex(NULL,FALSE,NULL);
@@ -362,7 +366,8 @@ void hid_devices_close()
        dev = d;
        d = d->next;
        CancelIo(dev->device_handle);
-       CloseHandle(dev->ol.hEvent);
+       CloseHandle(dev->ol_read.hEvent);
+       CloseHandle(dev->ol_write.hEvent);
        CloseHandle(dev->device_handle);
        LocalFree(dev->last_error_str);
        free(dev->read_buf);
@@ -565,11 +570,12 @@ PHID_DEVICE_NOTIFY_INFO hid_enum_notify_devices(HWND hWnd)
            else {
                 root = tmp;
            }
-            cur_dev = tmp;
+          
+		  cur_dev = tmp;
           cur_dev->hDevice = device_handle;
           
-            StringCchCopyA(cur_dev->DevicePath, MAX_PATH, 
-             device_interface_detail_data->DevicePath);
+          StringCchCopyA(cur_dev->DevicePath, MAX_PATH, 
+          device_interface_detail_data->DevicePath);
                  
           memset (&filter, 0, sizeof(filter)); //zero the structure
           filter.dbch_size = sizeof(filter);
@@ -1145,21 +1151,66 @@ int HID_API_EXPORT HID_API_CALL hid_write(hid_device *dev, const unsigned char *
     return bytes_written;
 }
 
+int HID_API_EXPORT HID_API_CALL hid_write_timeout(hid_device *dev, const unsigned char *data, size_t length, int milliseconds)
+{
+    DWORD bytes_written;
+    BOOL res;
+    HANDLE ev = dev->ol_write.hEvent;
+    if (!dev->write_pending) {
+        // Start an Overlapped I/O read.
+        dev->write_pending = TRUE;
+        ResetEvent(ev);
+        res = WriteFile(dev->device_handle, data, length, NULL, &dev->ol_write);
+        if (!res) {
+            if (GetLastError() != ERROR_IO_PENDING) {
+                // WriteFile() has failed.
+                // Clean up and return error.
+                CancelIo(dev->device_handle);
+                dev->write_pending = FALSE;
+                goto end_of_function;
+            }
+        }
+    }
+    if (milliseconds >= 0) {
+        // See if there is any data yet.
+        res = WaitForSingleObject(ev, milliseconds);
+        if (res != WAIT_OBJECT_0) {
+            // There was no data this time. Return zero bytes available,
+            // but leave the Overlapped I/O running.
+            return 0;
+        }
+    }
+    // Wait here until the write is done. This makes
+    // hid_write() synchronous.
+    res = GetOverlappedResult(dev->device_handle, &dev->ol_write, &bytes_written, TRUE);
+    if (!res) {
+        // The Write operation failed.
+        register_error(dev, "WriteFile");
+        return -1;
+    }
 
+end_of_function:
+    if (!res) {
+        register_error(dev, "GetOverlappedResult");
+        return -1;
+    }
+    return bytes_written;
+}
+    
 int HID_API_EXPORT HID_API_CALL hid_read_timeout(hid_device *dev, unsigned char *data, size_t length, int milliseconds)
 {
     DWORD bytes_read = 0;
     BOOL res;
-    
+        
     // Copy the handle for convenience.
-    HANDLE ev = dev->ol.hEvent;
-    
+    HANDLE ev = dev->ol_read.hEvent;
+        
     if (!dev->read_pending) {
         // Start an Overlapped I/O read.
         dev->read_pending = TRUE;
         ResetEvent(ev);
-        res = ReadFile(dev->device_handle, dev->read_buf, dev->input_report_length, &bytes_read, &dev->ol);
-        
+        res = ReadFile(dev->device_handle, dev->read_buf, dev->input_report_length, &bytes_read, &dev->ol_read);
+            
         if (!res) {
             if (GetLastError() != ERROR_IO_PENDING) {
                 // ReadFile() has failed.
@@ -1180,12 +1231,12 @@ int HID_API_EXPORT HID_API_CALL hid_read_timeout(hid_device *dev, unsigned char 
             return 0;
         }
     }
-    
+        
     // Either WaitForSingleObject() told us that ReadFile has completed, or
     // we are in non-blocking mode. Get the number of bytes read. The actual
     // data has been copied to the data[] array which was passed to ReadFile().
-    res = GetOverlappedResult(dev->device_handle, &dev->ol, &bytes_read, TRUE/*wait*/);
-    
+    res = GetOverlappedResult(dev->device_handle, &dev->ol_read, &bytes_read, TRUE/*wait*/);
+        
     // Set pending back to false, even if GetOverlappedResult() returned error.
     dev->read_pending = FALSE;
     
@@ -1203,7 +1254,7 @@ int HID_API_EXPORT HID_API_CALL hid_read_timeout(hid_device *dev, unsigned char 
             memcpy(data, dev->read_buf, length);
         }
     }
-    
+        
 end_of_function:
     if (!res) {
         register_error(dev, "GetOverlappedResult");
@@ -1314,7 +1365,8 @@ void HID_API_EXPORT HID_API_CALL hid_close(hid_device *dev)
     ReleaseMutex(device_list_mutex);
    
     CancelIo(dev->device_handle);
-    CloseHandle(dev->ol.hEvent);
+    CloseHandle(dev->ol_read.hEvent);
+    CloseHandle(dev->ol_write.hEvent);
     CloseHandle(dev->device_handle);
     LocalFree(dev->last_error_str);
     free(dev->read_buf);
