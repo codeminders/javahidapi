@@ -25,11 +25,27 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_write
 
 /*
  * Class:     com_codeminders_hidapi_HIDDevice
+ * Method:    writeTimeout
+ * Signature: ([BI)I
+ */
+JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_writeTimeout
+  (JNIEnv *, jobject, jbyteArray, jint);
+
+/*
+ * Class:     com_codeminders_hidapi_HIDDevice
  * Method:    read
  * Signature: ([B)I
  */
 JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_read
   (JNIEnv *, jobject, jbyteArray);
+
+/*
+ * Class:     com_codeminders_hidapi_HIDDevice
+ * Method:    readTimeout
+ * Signature: ([BI)I
+ */
+JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_readTimeout
+  (JNIEnv *, jobject, jbyteArray, jint);
 
 /*
  * Class:     com_codeminders_hidapi_HIDDevice
