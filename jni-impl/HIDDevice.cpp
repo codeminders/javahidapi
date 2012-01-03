@@ -64,6 +64,34 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_write
     return res;
 }
 
+JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_writeTimeout
+(JNIEnv *env, jobject self, jbyteArray data, jint milliseconds)
+{
+    hid_device *peer = getPeer(env, self);
+    if(!peer) 
+    {
+        throwIOException(env, peer);
+        return 0; /* not an error, freed previously */ 
+    }
+    
+    jsize bufsize = env->GetArrayLength(data);
+    jbyte *buf = env->GetByteArrayElements(data, NULL);
+    int res = hid_write_timeout(peer, (const unsigned char*) buf, bufsize, milliseconds);
+    env->ReleaseByteArrayElements(data, buf, JNI_ABORT);
+    if(res == 0) /* time out is success */
+    {
+        return 0;
+    }
+    else if(res==-1)
+    {
+        throwIOException(env, peer);
+        return 0; /* not an error, freed previously */ 
+    }
+    return res;
+    
+}
+
+
 JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_read
   (JNIEnv *env, jobject self, jbyteArray data)
 {
@@ -79,6 +107,32 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_read
     int read = hid_read(peer, (unsigned char*) buf, bufsize);
     env->ReleaseByteArrayElements(data, buf, read==-1?JNI_ABORT:0);
     if(read==-1)
+    {
+        throwIOException(env, peer);
+        return 0; /* not an error, freed previously */ 
+    }
+    return read;
+}
+
+JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_readTimeout
+(JNIEnv *env, jobject self, jbyteArray data, jint milliseconds )
+{
+    hid_device *peer = getPeer(env, self);
+    if(!peer) 
+    {
+        throwIOException(env, peer);
+        return 0; /* not an error, freed previously */ 
+    }
+    
+    jsize bufsize = env->GetArrayLength(data);
+    jbyte *buf = env->GetByteArrayElements(data, NULL);
+    int read = hid_read_timeout(peer, (unsigned char*) buf, bufsize, milliseconds);
+    env->ReleaseByteArrayElements(data, buf, read==-1?JNI_ABORT:0);
+    if(read == 0) /* time out */
+    {
+        return 0;
+    }
+    else if(read == -1)
     {
         throwIOException(env, peer);
         return 0; /* not an error, freed previously */ 
