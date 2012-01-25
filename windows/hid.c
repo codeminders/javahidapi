@@ -6,7 +6,7 @@ Alan Ott
 Signal 11 Software
 
 8/22/2009
-
+    
 Copyright 2009, All Rights Reserved.
 
 At the discretion of the user of this library,
@@ -19,9 +19,9 @@ These files may also be found in the public source
 code repository located at:
 http://github.com/signal11/hidapi .
 ********************************************************/
-
+    
 #include <windows.h>
-
+                
 #ifndef _NTDEF_
 typedef LONG NTSTATUS;
 #endif
@@ -30,7 +30,7 @@ typedef LONG NTSTATUS;
 #include <ntdef.h>
 #include <winbase.h>
 #endif
-
+    
 #ifdef __CYGWIN__
 #include <ntdef.h>
 #define _wcsdup wcsdup
@@ -41,7 +41,7 @@ typedef LONG NTSTATUS;
 #define HID_DEVICE_SUPPORT_CONNECT  // support connect nonification
 #define HID_DEVICE_NOTIFY          // hook notification on device 
 //#define HID_DEBUG                 // hid debugger
-
+    
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -136,6 +136,7 @@ static volatile BOOL quit = FALSE;
 struct hid_device_ {
     HANDLE device_handle;
     BOOL blocking;
+    USHORT output_report_length;
     size_t input_report_length;
     void *last_error_str;
     DWORD last_error_num;
@@ -151,6 +152,10 @@ struct hid_device_ {
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define DEVICE_WND_THREAD_MUTEX "HID_THREAD_MUTEX" 
+static HANDLE hid_lib_init_mutex = NULL;
+
 #ifdef HID_DEVICE_SUPPORT_CONNECT
 
 #define DEVICE_WND_CLASS_NAME  "HID_DEVICE_WND"
@@ -198,6 +203,7 @@ static PHID_DEVICE_NOTIFY_INFO pHidDeviceNotify = NULL;
     static struct hid_device_info *connect_device_info = NULL;
     static HANDLE connect_callback_mutex = NULL;
     
+    
     /* Add the opened device list*/
     
     // Window device connection interface
@@ -232,10 +238,12 @@ static hid_device *new_hid_device()
     hid_device *dev = (hid_device*) calloc(1, sizeof(hid_device));
     dev->device_handle = INVALID_HANDLE_VALUE;
     dev->blocking = TRUE;
+    dev->output_report_length = 0;
     dev->input_report_length = 0;
     dev->last_error_str = NULL;
     dev->last_error_num = 0;
     dev->read_pending = FALSE;
+    dev->write_pending = FALSE;
     dev->read_buf = NULL;
     dev->next = NULL;
     dev->ref_count = 1;
@@ -243,6 +251,7 @@ static hid_device *new_hid_device()
     memset(&dev->ol_write, 0, sizeof(dev->ol_write));
     dev->ol_read.hEvent = CreateEvent(NULL, FALSE, FALSE /*inital state f=nonsignaled*/, NULL);
     dev->ol_write.hEvent = CreateEvent(NULL, FALSE, FALSE /*inital state f=nonsignaled*/, NULL);
+    
     if(NULL == device_list_mutex)
     {
         device_list_mutex = CreateMutex(NULL,FALSE,NULL);
@@ -376,6 +385,9 @@ void hid_devices_close()
    ReleaseMutex(device_list_mutex);
    CloseHandle(device_list_mutex);
    device_list_mutex = NULL;
+#ifdef HID_DEBUG
+    printf("Success close devices \n");
+#endif
 }
 
 //#pragma mark get opened device
@@ -482,7 +494,7 @@ static void hid_device_info_free(struct hid_device_info *dev_info)
     }
 }
 
-#ifdef HID_DEVICE_NOTIFY
+#if defined(HID_DEVICE_NOTIFY) && defined(HID_DEVICE_SUPPORT_CONNECT) 
 
 PHID_DEVICE_NOTIFY_INFO hid_enum_notify_devices(HWND hWnd)
 {
@@ -570,12 +582,11 @@ PHID_DEVICE_NOTIFY_INFO hid_enum_notify_devices(HWND hWnd)
            else {
                 root = tmp;
            }
-          
-		  cur_dev = tmp;
+            cur_dev = tmp;
           cur_dev->hDevice = device_handle;
           
           StringCchCopyA(cur_dev->DevicePath, MAX_PATH, 
-          device_interface_detail_data->DevicePath);
+             device_interface_detail_data->DevicePath);
                  
           memset (&filter, 0, sizeof(filter)); //zero the structure
           filter.dbch_size = sizeof(filter);
@@ -604,6 +615,22 @@ PHID_DEVICE_NOTIFY_INFO hid_find_notify_device(HDEVNOTIFY hDevNotify)
     PHID_DEVICE_NOTIFY_INFO d = NULL;
     while( c ){
       if (c->hHandleNotification == hDevNotify) {
+          d  = c; 
+         break;
+     }
+      c = c->next;
+    }
+    return d;
+}
+
+PHID_DEVICE_NOTIFY_INFO hid_find_notify_device_path(char *path)
+{
+    PHID_DEVICE_NOTIFY_INFO c = pHidDeviceNotify;
+    PHID_DEVICE_NOTIFY_INFO d = NULL;
+    if(NULL == path)
+        return NULL;
+    while( c ){
+      if (strcmp(c->DevicePath,path) == 0) {
           d  = c; 
          break;
      }
@@ -677,38 +704,40 @@ PHID_DEVICE_NOTIFY_INFO hid_device_register(PDEV_BROADCAST_DEVICEINTERFACE_A b)
 {
    PHID_DEVICE_NOTIFY_INFO pDevNotify = NULL;
    DEV_BROADCAST_HANDLE filter;
+   const char *path_to_open = NULL;
+   size_t len = 0;
    HANDLE hDevice = NULL;
-   int len = 0;
 
-   hDevice = open_device( b->dbcc_name );
+   path_to_open = b->dbcc_name;
+   hDevice = open_device( path_to_open);
+   if(hDevice){
+       if(hid_find_notify_device_path((char*)path_to_open)){
+          // has been register
+          return NULL;
+       }
+   }
    memset (&filter, 0, sizeof(filter)); //zero the structure
    
-   if(INVALID_HANDLE_VALUE != hDevice )
+   if(INVALID_HANDLE_VALUE != hDevice && hDevice )
    {
      pDevNotify = (PHID_DEVICE_NOTIFY_INFO)calloc(1, PLENHID_DEVICE_NOTIFY_INFO);
-     
-     if(!pDevNotify)
-         return NULL;
-
+    
      filter.dbch_size = sizeof(filter);
      filter.dbch_devicetype = DBT_DEVTYP_HANDLE;
      filter.dbch_handle = hDevice;
      pDevNotify->hHandleNotification = RegisterDeviceNotification(hDeviceWindow, &filter, 0);
      pDevNotify->hDevice = hDevice;
      
-     len = strlen( b->dbcc_name );
-     strncpy(pDevNotify->DevicePath, b->dbcc_name, len+1);
+     len = strlen( path_to_open );
+     strncpy(pDevNotify->DevicePath, path_to_open, len+1);
      pDevNotify->DevicePath[len] = '\0';
-     pDevNotify->devInfo = hid_device_info_create(pDevNotify->hDevice,pDevNotify->DevicePath);
-     
+     pDevNotify->devInfo = hid_device_info_create(pDevNotify->hDevice, pDevNotify->DevicePath);
      
      pDevNotify->next = NULL;
      
      hid_insert_notify(pDevNotify);
-    
-     return pDevNotify;
    }
- return NULL;
+   return pDevNotify;
 }
 #endif
 
@@ -738,8 +767,10 @@ static hid_device* get_hid_device_path(const char *path)
     }
     WaitForSingleObject(device_list_mutex, INFINITE);
     
-    if (!device_list)
-        return NULL;
+    if (!device_list){
+        ReleaseMutex(device_list_mutex);
+           return NULL;
+    }
     else {
         hid_device *d = device_list;
         while (d) {
@@ -764,8 +795,10 @@ int HID_API_EXPORT hid_init(void)
             hid_exit();
             return -1;
         }
+#ifdef HID_DEVICE_SUPPORT_CONNECT
         hid_init_connect();
-         initialized = TRUE;
+#endif
+        initialized = TRUE;
     }
 #endif
     return 0;
@@ -783,6 +816,9 @@ int HID_API_EXPORT hid_exit(void)
         FreeLibrary(lib_handle);
     lib_handle = NULL;
     initialized = FALSE;
+#endif
+#ifdef HID_DEBUG
+    printf("Free library!\n");
 #endif
     return 0;
 }
@@ -1106,6 +1142,7 @@ HID_API_EXPORT hid_device * HID_API_CALL hid_open_path(const char *path)
         register_error(dev, "HidP_GetCaps");    
         goto err_pp_data;
     }
+    dev->output_report_length = caps.OutputReportByteLength;
     dev->input_report_length = caps.InputReportByteLength;
     HidD_FreePreparsedData(pp_data);
     
@@ -1121,52 +1158,41 @@ err:
     return NULL;
 }
 
-int HID_API_EXPORT HID_API_CALL hid_write(hid_device *dev, const unsigned char *data, size_t length)
-{
-    DWORD bytes_written;
-    BOOL res;
-    
-    OVERLAPPED ol;
-    memset(&ol, 0, sizeof(ol));
-    
-    res = WriteFile(dev->device_handle, data, length, NULL, &ol);
-    
-    if (!res) {
-        if (GetLastError() != ERROR_IO_PENDING) {
-            // WriteFile() failed. Return error.
-            register_error(dev, "WriteFile");
-            return -1;
-        }
-    }
-    
-    // Wait here until the write is done. This makes
-    // hid_write() synchronous.
-    res = GetOverlappedResult(dev->device_handle, &ol, &bytes_written, TRUE/*wait*/);
-    if (!res) {
-        // The Write operation failed.
-        register_error(dev, "WriteFile");
-        return -1;
-    }
-    
-    return bytes_written;
-}
 
 int HID_API_EXPORT HID_API_CALL hid_write_timeout(hid_device *dev, const unsigned char *data, size_t length, int milliseconds)
 {
-    DWORD bytes_written;
+    DWORD bytes_written = 0;
+    unsigned char *buf = 0;
     BOOL res;
     HANDLE ev = dev->ol_write.hEvent;
+        
+    if (ev == NULL)
+        return FALSE;
+
     if (!dev->write_pending) {
         // Start an Overlapped I/O read.
         dev->write_pending = TRUE;
+        if (length >= dev->output_report_length) 
+        {
+            buf = (unsigned char *)data;
+        } 
+        else 
+        {
+            buf = (unsigned char *)malloc(dev->output_report_length);
+            memcpy(buf, data, length);
+            memset(buf + length, 0, dev->output_report_length - length);
+            length = dev->output_report_length;
+        }
         ResetEvent(ev);
-        res = WriteFile(dev->device_handle, data, length, NULL, &dev->ol_write);
-        if (!res) {
+        res = WriteFile(dev->device_handle, buf, length, &bytes_written, &dev->ol_write);
+        if (!res || bytes_written != length) {
             if (GetLastError() != ERROR_IO_PENDING) {
                 // WriteFile() has failed.
                 // Clean up and return error.
+                register_error(dev, "WriteFile");
                 CancelIo(dev->device_handle);
                 dev->write_pending = FALSE;
+                bytes_written = -1;
                 goto end_of_function;
             }
         }
@@ -1177,52 +1203,63 @@ int HID_API_EXPORT HID_API_CALL hid_write_timeout(hid_device *dev, const unsigne
         if (res != WAIT_OBJECT_0) {
             // There was no data this time. Return zero bytes available,
             // but leave the Overlapped I/O running.
+            if (buf && buf != data)
+                free(buf);
             return 0;
         }
     }
     // Wait here until the write is done. This makes
     // hid_write() synchronous.
     res = GetOverlappedResult(dev->device_handle, &dev->ol_write, &bytes_written, TRUE);
+    
+    // Set pending back to false, even if GetOverlappedResult() returned error.
+    dev->write_pending = TRUE;
     if (!res) {
         // The Write operation failed.
-        register_error(dev, "WriteFile");
-        return -1;
-    }
-
-end_of_function:
-    if (!res) {
         register_error(dev, "GetOverlappedResult");
-        return -1;
+        bytes_written = -1;
+        goto end_of_function;
     }
+    
+end_of_function:
+    
+    if (buf && buf != data)
+        free(buf);
+    
     return bytes_written;
 }
-    
+
 int HID_API_EXPORT HID_API_CALL hid_read_timeout(hid_device *dev, unsigned char *data, size_t length, int milliseconds)
 {
     DWORD bytes_read = 0;
     BOOL res;
-        
+    
     // Copy the handle for convenience.
     HANDLE ev = dev->ol_read.hEvent;
-        
+    
+    if (ev == NULL)
+        return 0;
+    
     if (!dev->read_pending) {
         // Start an Overlapped I/O read.
         dev->read_pending = TRUE;
+        memset(dev->read_buf, 0, dev->input_report_length);
         ResetEvent(ev);
         res = ReadFile(dev->device_handle, dev->read_buf, dev->input_report_length, &bytes_read, &dev->ol_read);
-            
         if (!res) {
             if (GetLastError() != ERROR_IO_PENDING) {
                 // ReadFile() has failed.
                 // Clean up and return error.
                 CancelIo(dev->device_handle);
                 dev->read_pending = FALSE;
-                goto end_of_function;
+                register_error(dev, "ReadFile");
+                return -1;
             }
         }
     }
     
-    if (milliseconds >= 0) {
+   if (milliseconds >= 0)
+        {
         // See if there is any data yet.
         res = WaitForSingleObject(ev, milliseconds);
         if (res != WAIT_OBJECT_0) {
@@ -1231,12 +1268,12 @@ int HID_API_EXPORT HID_API_CALL hid_read_timeout(hid_device *dev, unsigned char 
             return 0;
         }
     }
-        
+    
     // Either WaitForSingleObject() told us that ReadFile has completed, or
     // we are in non-blocking mode. Get the number of bytes read. The actual
     // data has been copied to the data[] array which was passed to ReadFile().
     res = GetOverlappedResult(dev->device_handle, &dev->ol_read, &bytes_read, TRUE/*wait*/);
-        
+    
     // Set pending back to false, even if GetOverlappedResult() returned error.
     dev->read_pending = FALSE;
     
@@ -1246,24 +1283,29 @@ int HID_API_EXPORT HID_API_CALL hid_read_timeout(hid_device *dev, unsigned char 
              number (0x0) on the beginning of the report anyway. To make this
              work like the other platforms, and to make it work more like the
              HID spec, we'll skip over this byte. */
+            size_t copy_len;
             bytes_read--;
-            memcpy(data, dev->read_buf+1, length);
+            copy_len = length > bytes_read ? bytes_read : length;
+            memcpy(data, dev->read_buf+1, copy_len);
         }
         else {
             /* Copy the whole buffer, report number and all. */
-            memcpy(data, dev->read_buf, length);
+            size_t copy_len = length > bytes_read ? bytes_read : length;
+            memcpy(data, dev->read_buf, copy_len);
         }
     }
-        
-end_of_function:
-    if (!res) {
+   if (!res) {
         register_error(dev, "GetOverlappedResult");
         return -1;
     }
-    
     return bytes_read;
 }
 
+
+int HID_API_EXPORT HID_API_CALL hid_write(hid_device *dev, const unsigned char *data, size_t length)
+{
+    return hid_write_timeout(dev, data, length, -1);
+}
 int HID_API_EXPORT HID_API_CALL hid_read(hid_device *dev, unsigned char *data, size_t length)
 {
     return hid_read_timeout(dev, data, length, (dev->blocking)? -1: 0);
@@ -1424,7 +1466,7 @@ int HID_API_EXPORT_CALL HID_API_CALL hid_get_indexed_string(hid_device *dev, int
     
     return 0;
 }
-
+    
 
 HID_API_EXPORT const wchar_t * HID_API_CALL  hid_error(hid_device *dev)
 {
@@ -1495,7 +1537,7 @@ static int hid_register_add_callback(hid_device_callback callBack, hid_device_co
         pthread_mutex_unlock(connect_callback_mutex);
         return 0;
     }
-    hid_connect = calloc(1, sizeof(struct hid_device_callback_connect));
+    hid_connect = (hid_device_callback_connect*)calloc(1, sizeof(struct hid_device_callback_connect));
     hid_connect->callback = callBack;
     hid_connect->context = context;
     hid_connect->next = NULL;
@@ -1554,15 +1596,12 @@ static void hid_register_remove_callback(hid_device_callback callBack, hid_devic
             connect_device_info = NULL;
         }
     }
-    pthread_mutex_unlock(&connect_callback_mutex);
+    pthread_mutex_unlock(connect_callback_mutex);
 }
 
 int HID_API_EXPORT HID_API_CALL hid_add_notification_callback(hid_device_callback callBack, void *context)
 {
     int result = -1;
-    /* Set up the HID Manager if it hasn't been done */
-    if( hid_init() < 0)
-        return result;
     
     /* register device matching callback */
     result = hid_register_add_callback(callBack, context);
@@ -1571,8 +1610,6 @@ int HID_API_EXPORT HID_API_CALL hid_add_notification_callback(hid_device_callbac
 
 void HID_API_EXPORT HID_API_CALL hid_remove_notification_callback(hid_device_callback  callBack, void *context)
 {
-    if (hid_init() < 0)
-        return;
     hid_register_remove_callback(callBack, context);
 }
 
@@ -1594,45 +1631,78 @@ void HID_API_EXPORT HID_API_CALL hid_remove_all_notification_callbacks(void)
     hid_device_info_free(connect_device_info);
     connect_device_info = NULL;
     connect_callback_list = NULL;
-    
+        
     pthread_mutex_unlock(connect_callback_mutex);
-   //hid_deinit_connect();
 }
 
-#ifdef HID_DEVICE_NOTIFY
+#if defined(HID_DEVICE_NOTIFY) && defined(HID_DEVICE_SUPPORT_CONNECT)
+static struct hid_device_info* hid_device_dup(struct hid_device_info *info)
+{
+ struct hid_device_info* dev_info;
+ 
+ if(NULL == info)
+     return NULL;
+
+  dev_info = (struct hid_device_info*)malloc(sizeof(struct hid_device_info));
+  if(dev_info){
+     dev_info->path = strdup(info->path);
+     dev_info->product_id = info->product_id;
+     dev_info->vendor_id = info->vendor_id;
+     dev_info->serial_number = _wcsdup(info->serial_number);
+     dev_info->product_string = _wcsdup(info->product_string);
+     dev_info->manufacturer_string = _wcsdup(info->manufacturer_string);
+     dev_info->usage =  info->usage;
+     dev_info->usage_page =  info->usage_page;
+     dev_info->interface_number = info->interface_number;
+     dev_info->release_number = info->release_number;
+     dev_info->next = NULL;
+  }
+  return dev_info;
+}
 // this is call on WM_DEVICECHANGE
 static void hid_device_notify_removal_callback(PHID_DEVICE_NOTIFY_INFO device_notify)
 {
     struct hid_device_callback_connect *c = NULL; 
-    struct hid_device_info *device_info = NULL;
     if(NULL == device_notify)
         return;
+    pthread_mutex_lock(connect_callback_mutex);
     c = connect_callback_list;
-    device_info = device_notify->devInfo;
+    if(NULL != connect_device_info){
+        hid_device_info_free(connect_device_info);
+        connect_device_info = NULL;
+    }
+    connect_device_info  = hid_device_dup(device_notify->devInfo);
     while (c) {
         if (c->callback) {
-            (*c->callback)(device_info, device_removal, c->context);
+            (*c->callback)(connect_device_info, device_removal, c->context);
         }
         c = c->next;
     }
+    pthread_mutex_unlock(connect_callback_mutex);
 }
 
 // this is call on WM_DEVICECHANGE
 static void hid_device_notify_matching_callback(PHID_DEVICE_NOTIFY_INFO device_notify)
 {
     struct hid_device_callback_connect *c = NULL;
-    struct hid_device_info *device_info = NULL;
     if(NULL == device_notify)
         return;
+    pthread_mutex_lock(connect_callback_mutex);
     c = connect_callback_list;
-    device_info = device_notify->devInfo;
+    if(NULL != connect_device_info){
+        hid_device_info_free(connect_device_info);
+        connect_device_info = NULL;
+    }
+    connect_device_info = hid_device_dup(device_notify->devInfo);
     while (c) {
         if (c->callback) {
-            (*c->callback)(device_info, device_arrival, c->context);
+            (*c->callback)(connect_device_info, device_arrival, c->context);
         }
         c = c->next;
     }
+    pthread_mutex_unlock(connect_callback_mutex);
 }
+
 
 BOOL handle_device_interface_change( UINT nEventType, PDEV_BROADCAST_DEVICEINTERFACE_A pdev)
 {
@@ -1641,19 +1711,20 @@ BOOL handle_device_interface_change( UINT nEventType, PDEV_BROADCAST_DEVICEINTER
     switch (nEventType)
     {
       case DBT_DEVICEARRIVAL:
-          {
-            PHID_DEVICE_NOTIFY_INFO pdevInfo = NULL;
-            if(pdevInfo = hid_device_register(pdev)){
-               hid_device_notify_matching_callback(pdevInfo);
-            }
-          }break;
+           {
+             PHID_DEVICE_NOTIFY_INFO pdevInfo = NULL;
+             if(pdevInfo = hid_device_register(pdev)){
+                hid_device_notify_matching_callback(pdevInfo);
+             }
+           }
+           break;
       case DBT_DEVICEREMOVECOMPLETE:
            break;
       }
     return TRUE;
 }
 
-BOOL handle_device_change(UINT  nEventType, PDEV_BROADCAST_HANDLE pdev)
+BOOL handle_device_change(UINT nEventType, PDEV_BROADCAST_HANDLE pdev)
 {
     BOOL ret = FALSE;
     PHID_DEVICE_NOTIFY_INFO pdevice = NULL;
@@ -1666,21 +1737,28 @@ BOOL handle_device_change(UINT  nEventType, PDEV_BROADCAST_HANDLE pdev)
         case DBT_DEVICEQUERYREMOVE:
             hid_device_notify_removal_callback(pdevice);
             if(pdevice->hDevice){
-                CloseHandle(pdevice->hDevice);
-                pdevice->hDevice = NULL;
+               CloseHandle(pdevice->hDevice);
+               pdevice->hDevice = NULL;
             }
             break;
         case DBT_DEVICEREMOVEPENDING:
+            hid_device_notify_removal_callback(pdevice);
+            if(pdevice->hHandleNotification){
+               UnregisterDeviceNotification(pdevice->hHandleNotification);
+               pdevice->hHandleNotification = NULL;
+               pdevice->hDevice = NULL;
+            }
+            hid_remove_notify(pdevice);
             break;
         case DBT_DEVICEREMOVECOMPLETE:
             if(pdevice->hHandleNotification){
-                UnregisterDeviceNotification(pdevice->hHandleNotification);
-                pdevice->hHandleNotification = NULL;
+               UnregisterDeviceNotification(pdevice->hHandleNotification);
+               pdevice->hHandleNotification = NULL;
             }
             if(pdevice->hDevice){
-                hid_device_notify_removal_callback(pdevice);
-                CloseHandle(pdevice->hDevice);
-                pdevice->hDevice = NULL;
+               hid_device_notify_removal_callback(pdevice);
+               CloseHandle(pdevice->hDevice);
+               pdevice->hDevice = NULL;
             }
             hid_remove_notify(pdevice);
             break;
@@ -1820,7 +1898,7 @@ BOOL register_device_interface_to_hwnd(OUT HDEVNOTIFY *hDeviceNotify )
     {
         return FALSE;
     }
-#ifdef HID_DEVICE_NOTIFY
+#if defined(HID_DEVICE_NOTIFY) && defined(HID_DEVICE_SUPPORT_CONNECT)
     hid_enum_notify_devices(hDeviceWindow);
 #endif
     return TRUE;
@@ -1832,7 +1910,7 @@ void unregister_device_interface_to_hwnd(HDEVNOTIFY hDeviceNotify )
         UnregisterDeviceNotification(hDeviceNotify);
         hDeviceNotify = NULL;
     }
-#ifdef HID_DEVICE_NOTIFY
+#if defined(HID_DEVICE_NOTIFY) && defined(HID_DEVICE_SUPPORT_CONNECT)
     hid_free_notify_devices();
 #endif
 }
@@ -1914,38 +1992,36 @@ DWORD WINAPI thread_proc(LPVOID data)
         DestroyWindow(hDeviceWindow);
     
     hDeviceWindow = NULL;
-    
-    if( hThreadDeviceWnd )
-    {
-        CloseHandle(hThreadDeviceWnd);
-        hThreadDeviceWnd= NULL;
-    }   
+#ifdef HID_DEBUG
+    printf("HID thread close\n");
+#endif
     return 0;
 }  
 
 BOOL init_device_thread_window(HWND hWindow)
 {  
     BOOL bInit = TRUE;
-    if(NULL != hThreadDeviceWnd){
-        WaitForSingleObject(hThreadDeviceWnd, INFINITE);
-        quit = FALSE;
-    }
-    else
-    {
+    pthread_mutex_lock(hid_lib_init_mutex);
+    if(NULL == hThreadDeviceWnd){
         quit = FALSE;
         hThreadDeviceWnd = CreateThread(NULL, 0, thread_proc, hWindow, 0, &dwThreadID);
         bInit = (NULL!=hThreadDeviceWnd);
     }
+    pthread_mutex_unlock(hid_lib_init_mutex);
     return bInit;
 }
 
 void deinit_device_thread_window()
 {
+    pthread_mutex_lock(hid_lib_init_mutex);
     if(hThreadDeviceWnd){
         quit = TRUE;
         PostThreadMessage(dwThreadID,WM_QUIT,0,0);
         WaitForSingleObject(hThreadDeviceWnd, INFINITE);
+        CloseHandle(hThreadDeviceWnd);
+        hThreadDeviceWnd= NULL;
     }
+    pthread_mutex_unlock(hid_lib_init_mutex);
 }
 
 
@@ -2004,7 +2080,6 @@ void deinit_device_notification(void)
         HINSTANCE hInstance = (HINSTANCE)GetWindowLong(hDeviceWindow, GWL_HINSTANCE);
         SendMessage(hDeviceWindow,WM_CLOSE,0,0);
         UnregisterClassA(DEVICE_WND_CLASS_NAME, hInstance);
-        
     }
 }
 
@@ -2020,6 +2095,32 @@ void HID_API_EXPORT HID_API_CALL hid_remove_all_notification_callbacks(void)
 {
 }
 #endif // NO SUPPORT
+
+BOOL APIENTRY DllMain( HMODULE hModule,
+        unsigned long  ul_reason_for_call,
+        LPVOID lpReserved
+        )
+{
+    switch(ul_reason_for_call)
+    {
+        case DLL_PROCESS_ATTACH:
+        case DLL_THREAD_ATTACH:
+            if(NULL == hid_lib_init_mutex)
+            { 
+                 hid_lib_init_mutex = CreateMutexA(NULL, FALSE, DEVICE_WND_THREAD_MUTEX);
+            }
+            break;
+        case DLL_THREAD_DETACH:
+        case DLL_PROCESS_DETACH:
+            if(hid_lib_init_mutex)
+            {
+                CloseHandle(hid_lib_init_mutex);
+                hid_lib_init_mutex = NULL;
+            }
+            break;
+    }
+    return TRUE;
+}
 //#define PICPGM
 //#define S11
 #define P32
