@@ -68,6 +68,7 @@ typedef  struct _udev_notify udev_notify;
 
 struct _udev_notify {
     char path[MAX_PATH];
+    struct hid_device_info *info;
     struct udev_device *dev;
     udev_notify *next;
 };
@@ -630,7 +631,6 @@ hid_device * HID_API_EXPORT hid_open_path(const char *path)
     }
 }
 
-
 int HID_API_EXPORT hid_write_timeout(hid_device *dev, const unsigned char *data, size_t length, int milliseconds)
 {
     int bytes_written;
@@ -658,6 +658,8 @@ int HID_API_EXPORT hid_write_timeout(hid_device *dev, const unsigned char *data,
     
     return bytes_written;
 }
+
+
 
 int HID_API_EXPORT hid_write(hid_device *dev, const unsigned char *data, size_t length)
 {
@@ -769,7 +771,7 @@ static struct hid_device_info* hid_device_info_create(struct udev_device *hid_de
     unsigned short dev_pid;
     size_t len = 0;
     
-    if(!hid_dev){
+      if(!hid_dev){
         return NULL;
     }
     
@@ -856,7 +858,7 @@ static struct hid_device_info* hid_device_info_create(struct udev_device *hid_de
 
 static void hid_device_info_free(struct hid_device_info *dev_info)
 {
-    if(dev_info){
+    if (dev_info) {
         if(dev_info->path)
            free(dev_info->path);
         if(dev_info->serial_number)
@@ -872,26 +874,25 @@ static void hid_device_info_free(struct hid_device_info *dev_info)
 static void  hid_device_callback_connect_free(hid_device_callback_connect *dev_connect)
 {
     if(dev_connect){
-       free(dev_connect);
+        free(dev_connect);
     }
 }
 
-static void hid_device_removal_callback_result(struct udev_device *dev_ref)
+static void hid_device_removal_callback_result(udev_notify* udev)
 {
     hid_device_callback_connect *c = NULL;
     
-    if(NULL!=connect_device_info){
-        hid_device_info_free(connect_device_info);
-    }
-    
-    connect_device_info = hid_device_info_create(dev_ref);
+    if(udev == NULL)
+        return;
+    if(udev->info == NULL)
+        return;
     
     pthread_mutex_lock(&connect_callback_mutex);
     
     c = connect_callback_list;
     while (c) {
         if (c->callback) {
-            (*c->callback)(connect_device_info, device_removal, c->context);
+            (*c->callback)(udev->info, device_removal, c->context);
         }
         c = c->next;
     }
@@ -899,21 +900,22 @@ static void hid_device_removal_callback_result(struct udev_device *dev_ref)
 }
 
 
-static void hid_device_matching_callback_result(struct udev_device *dev_ref)
+static void hid_device_matching_callback_result(udev_notify* udev)
 {
     hid_device_callback_connect *c = NULL;
     
-    if(NULL!=connect_device_info){
-       hid_device_info_free(connect_device_info);
-    }
-    connect_device_info = hid_device_info_create(dev_ref);
+    if(udev == NULL)
+        return;
+    
+    if(udev->info == NULL)
+        return;
     
     pthread_mutex_lock(&connect_callback_mutex);
     
     c = connect_callback_list;
     while (c) {
         if (c->callback) {
-            (*c->callback)(connect_device_info, device_arrival,c->context);
+            (*c->callback)(udev->info, device_arrival,c->context);
         }
         c = c->next;
     }
@@ -932,9 +934,9 @@ void hid_device_unlock(udev_state* udev)
     
 static void hid_dev_notify_free(udev_notify *dev_notify)
 {
-    if(dev_notify)
+    if (dev_notify)
     {
-        if(dev_notify->dev)
+        if (dev_notify->dev)
         {
             udev_device_unref(dev_notify->dev);
             dev_notify->dev = NULL;
@@ -954,12 +956,12 @@ static void hid_remove_notify(udev_notify *dev)
     
     // Remove from list
     c = dev_state->udev_notify;
-    if(c == dev){
+    if (c == dev) {
         dev_state->udev_notify = c->next;
     }
     else
     {
-        while ( c ) {
+        while( c ) {
             if (c->next) {
                 if (c->next == dev) {
                     c->next = c->next->next;
@@ -993,21 +995,21 @@ static void hid_free_notify_devices()
     pthread_mutex_unlock(&dev_state->notify_lock);
 }
 
-static void hid_set_notify(struct udev_device *dev)
+static udev_notify* hid_set_notify(struct udev_device *dev)
 {
     udev_notify *curr = dev_state->udev_notify;
-    udev_notify *pred = NULL;    
+    //udev_notify *pred = NULL;    
     const char* dev_path = NULL;
     
     if(!dev)
-        return;
+        return NULL;
     
     dev_path = udev_device_get_devnode(dev);
     
     while (NULL != curr) {
         if (!strcmp(curr->path,dev_path))
             break;
-        pred = curr;            
+        //pred = curr;            
         curr = curr->next;
     }
     if(NULL == curr)
@@ -1016,14 +1018,20 @@ static void hid_set_notify(struct udev_device *dev)
         tmp->next = NULL;
         tmp->dev = dev;
         strcpy(tmp->path, dev_path);
-        udev_device_ref(tmp->dev);                 
-        if(pred){       
-            pred->next = tmp;
-        }
-        else{
+        udev_device_ref(tmp->dev);
+        
+        tmp->info = hid_device_info_create(dev);
+        
+        if(dev_state->udev_notify) {       
+            tmp->next = dev_state->udev_notify;
             dev_state->udev_notify = tmp;
-        }     
+        }
+        else {
+            dev_state->udev_notify = tmp;
+        }
+        return tmp;
     }
+    return curr;
 }
 
 static udev_notify *hid_get_notify(struct udev_device *dev)
@@ -1096,27 +1104,7 @@ static udev_notify *hid_enum_notify_devices()
             /* Unable to find parent usb device. */
             goto next;
         }
-        /* Get the VID/PID of the device */
-        udev_device_get_sysattr_value(dev,"idVendor");
-        udev_device_get_sysattr_value(dev, "idProduct");
-        
-        /* Serial Number */
-        udev_device_get_sysattr_value(dev, "serial");
-        
-        /* Manufacturer and Product strings */
-        udev_device_get_sysattr_value(dev, "manufacturer");
-        udev_device_get_sysattr_value(dev, "product");
-        
-        /* Release number */
-        udev_device_get_sysattr_value(dev, "bcdDevice");
-        
-        intf_dev = udev_device_get_parent_with_subsystem_devtype(
-                                                                 hid_dev,
-                                                                 "usb",
-                                                                 "usb_interface");
-        if (intf_dev) {
-            udev_device_get_sysattr_value(intf_dev, "bInterfaceNumber");
-        }
+
         tmp = malloc(sizeof(udev_notify));
         if (curr) {
             curr->next = tmp;
@@ -1137,6 +1125,8 @@ static udev_notify *hid_enum_notify_devices()
             curr->path[0] = '\0';
         udev_device_ref(hid_dev);
         curr->dev = hid_dev;
+        curr->info = hid_device_info_create(hid_dev);
+        
     next:
         udev_device_unref(hid_dev);
     }
@@ -1151,23 +1141,21 @@ static void *hid_monitor_thread(void *param)
     udev_state *devState = (udev_state*)param;
     struct udev_monitor *monitor = devState->udev_monitor;
     int fd = udev_monitor_get_fd(monitor);
-    
-    pthread_mutex_lock(&devState->lock);
-    
     while(!devState->shutdown_thread)
     {
         struct udev_device* dev;
         struct timeval tv;
         fd_set fds;
         int ret;
-            
+     
+        pthread_mutex_lock(&devState->lock);
+        
         FD_ZERO(&fds);
         FD_SET(fd, &fds);
         tv.tv_sec = 0;
         tv.tv_usec = 0;
         
         ret = select(fd+1, &fds, NULL, NULL, &tv);
-            
         /* Check if our file descriptor has received data. */
         if (ret > 0 && FD_ISSET(fd, &fds)) 
         {
@@ -1176,17 +1164,22 @@ static void *hid_monitor_thread(void *param)
              select() ensured that this will not block. */
             dev = udev_monitor_receive_device(monitor);
             if (dev) {
-                const char *action = udev_device_get_action(dev);
                 udev_notify* udev  = 0;
-                if(strcmp(action, DEV_ACTION_ADD) == 0)
-                {
-                   hid_device_matching_callback_result(dev);    
+                const char *action = udev_device_get_action(dev);
+                if (strcmp(action, DEV_ACTION_ADD) == 0) {
+                    udev = hid_set_notify(dev);
+                    if(udev) {
+                        hid_device_matching_callback_result(udev); //dev
+                    }
                 }
-                else if(strcmp(action, DEV_ACTION_REMOVE) == 0){
-                      hid_device_removal_callback_result(dev);    
+                else if(strcmp(action, DEV_ACTION_REMOVE) == 0) {
+                    udev = hid_get_notify(dev);
+                    if(udev){
+                      hid_device_removal_callback_result(udev); //dev 
+                      hid_remove_notify(udev);
+                    }
                 }
-                if(!udev)
-                    udev_device_unref(dev);
+                udev_device_unref(dev);
             }
             else {
                 //printf("No Device from receive_device(). An error occured.\n");
@@ -1196,8 +1189,8 @@ static void *hid_monitor_thread(void *param)
         printf("HID thread\n");
 #endif    
         usleep(SLEEP_TIME);
+        pthread_mutex_unlock(&devState->lock);
     }
-    pthread_mutex_unlock(&devState->lock);
     return NULL;
 }
     
@@ -1209,8 +1202,8 @@ static int hid_monitor_startup()
     if(NULL != dev_state)
         return -1;
     
-    if(dev_state){
-        if(!dev_state->shutdown_thread)
+    if (dev_state) {
+        if (!dev_state->shutdown_thread)
             return -1;
     }
     udev = udev_new();
@@ -1275,7 +1268,7 @@ static int hid_monitor_shutdown(void)
 static int hid_connect_registered(hid_device_callback callBack, void *context)
 {
     hid_device_callback_connect *c = NULL;
-    if (!connect_callback_list){
+    if (!connect_callback_list) {
         return -1;
     }
     c = connect_callback_list;
@@ -1291,7 +1284,7 @@ static int hid_connect_registered(hid_device_callback callBack, void *context)
 
 int hid_init_connect()
 {
-    if(NULL==connect_callback_list){
+    if(NULL==connect_callback_list) {
         hid_monitor_startup();
     }
     return TRUE;
@@ -1299,7 +1292,7 @@ int hid_init_connect()
 
 void hid_deinit_connect()
 {
-    if(NULL==connect_callback_list){
+    if(NULL==connect_callback_list) {
       hid_monitor_shutdown();
     }
 }
@@ -1319,7 +1312,7 @@ static int hid_register_add_callback(hid_device_callback callBack, hid_device_co
     pthread_mutex_lock(&connect_callback_mutex);
     
     // check if has been registered callback
-    if(hid_connect_registered(callBack,context)==0){
+    if(hid_connect_registered(callBack,context)==0) {
         pthread_mutex_unlock(&connect_callback_mutex);
         return 0;
     }
@@ -1341,7 +1334,7 @@ static int hid_register_add_callback(hid_device_callback callBack, hid_device_co
     pthread_mutex_unlock(&connect_callback_mutex);
     return 0;
 }
-
+    
 static void hid_register_remove_callback(hid_device_callback callBack, hid_device_context context)
 {
     hid_device_callback_connect *c = NULL;
