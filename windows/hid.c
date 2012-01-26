@@ -1257,7 +1257,6 @@ int HID_API_EXPORT HID_API_CALL hid_read_timeout(hid_device *dev, unsigned char 
             }
         }
     }
-    
    if (milliseconds >= 0)
         {
         // See if there is any data yet.
