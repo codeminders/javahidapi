@@ -25,7 +25,7 @@ http://github.com/signal11/hidapi .
 #ifndef _NTDEF_
 typedef LONG NTSTATUS;
 #endif
-
+    
 #ifdef __MINGW32__
 #include <ntdef.h>
 #include <winbase.h>
@@ -330,34 +330,20 @@ static int lookup_functions()
 }
 #endif
 
-static HANDLE open_device(const char *path)
+static HANDLE open_device(const char *path, BOOL enumerate)
 {
     HANDLE handle;
-    
-    /* First, try to open with sharing mode turned off. This will make it so
-     that a HID device can only be opened once. This is to be consistent
-     with the behavior on the other platforms. */
+    DWORD desired_access = (enumerate)? 0: (GENERIC_WRITE | GENERIC_READ);
+    DWORD share_mode = (enumerate)?
+                        FILE_SHARE_READ|FILE_SHARE_WRITE:
+                        FILE_SHARE_READ;
     handle = CreateFileA(path,
-                         GENERIC_WRITE |GENERIC_READ,
-                         0, /*share mode*/
+                         desired_access,
+                         share_mode,
                          NULL,
                          OPEN_EXISTING,
                          FILE_FLAG_OVERLAPPED,//FILE_ATTRIBUTE_NORMAL,
                          0);
-    
-    if (handle == INVALID_HANDLE_VALUE) {
-        /* Couldn't open the device. Some devices must be opened
-         with sharing enabled (even though they are only opened once),
-         so try it here. */
-        handle = CreateFileA(path,
-                             GENERIC_WRITE |GENERIC_READ,
-                             FILE_SHARE_READ|FILE_SHARE_WRITE, /*share mode*/
-                             NULL,
-                             OPEN_EXISTING,
-                             FILE_FLAG_OVERLAPPED,//FILE_ATTRIBUTE_NORMAL,
-                             0);
-    }
-    
     return handle;
 }
 
@@ -566,7 +552,7 @@ PHID_DEVICE_NOTIFY_INFO hid_enum_notify_devices(HWND hWnd)
         }
         //printf("HandleName: %s\n", device_interface_detail_data->DevicePath);
         
-        device_handle = open_device(device_interface_detail_data->DevicePath);
+        device_handle = open_device(device_interface_detail_data->DevicePath, TRUE);
         
         if (device_handle == INVALID_HANDLE_VALUE) {
             // Unable to open the device.
@@ -709,7 +695,7 @@ PHID_DEVICE_NOTIFY_INFO hid_device_register(PDEV_BROADCAST_DEVICEINTERFACE_A b)
    HANDLE hDevice = NULL;
 
    path_to_open = b->dbcc_name;
-   hDevice = open_device( path_to_open);
+   hDevice = open_device( path_to_open, TRUE);
    if(hDevice){
        if(hid_find_notify_device_path((char*)path_to_open)){
           // has been register
@@ -755,7 +741,7 @@ static hid_device* get_hid_device_path(const char *path)
     {
         device_list_mutex = CreateMutex(NULL,FALSE,NULL);
     }
-    handle = open_device(path);
+    handle = open_device(path, FALSE);
     
     if(INVALID_HANDLE_VALUE == handle)
         return NULL;        
@@ -924,7 +910,7 @@ struct hid_device_info HID_API_EXPORT * HID_API_CALL hid_enumerate(unsigned shor
         //wprintf(L"HandleName: %s\n", device_interface_detail_data->DevicePath);
         
         // Open a handle to the device
-        write_handle = open_device(device_interface_detail_data->DevicePath);
+        write_handle = open_device(device_interface_detail_data->DevicePath, TRUE);
         
         // Check validity of write_handle.
         if (write_handle == INVALID_HANDLE_VALUE) {
@@ -1122,7 +1108,7 @@ HID_API_EXPORT hid_device * HID_API_CALL hid_open_path(const char *path)
         return dev;
     
     // Open a handle to the device
-    dev->device_handle = open_device(path);
+    dev->device_handle = open_device(path, FALSE);
     
     // Check validity of write_handle.
     if (dev->device_handle == INVALID_HANDLE_VALUE) {
@@ -1157,6 +1143,7 @@ err:
     free(dev);
     return NULL;
 }
+
 
 
 int HID_API_EXPORT HID_API_CALL hid_write_timeout(hid_device *dev, const unsigned char *data, size_t length, int milliseconds)
@@ -1257,6 +1244,7 @@ int HID_API_EXPORT HID_API_CALL hid_read_timeout(hid_device *dev, unsigned char 
             }
         }
     }
+    
    if (milliseconds >= 0)
         {
         // See if there is any data yet.
@@ -1302,9 +1290,50 @@ int HID_API_EXPORT HID_API_CALL hid_read_timeout(hid_device *dev, unsigned char 
 
 
 int HID_API_EXPORT HID_API_CALL hid_write(hid_device *dev, const unsigned char *data, size_t length)
+
 {
-    return hid_write_timeout(dev, data, length, -1);
+    DWORD bytes_written;
+    BOOL res;
+    OVERLAPPED ol;
+    unsigned char *buf;
+    memset(&ol, 0, sizeof(ol));
+    if (length >= dev->output_report_length) 
+    { 
+        buf = (unsigned char *)data;
+    } 
+    else 
+    {
+       buf = (unsigned char *)malloc(dev->output_report_length);
+       memcpy(buf, data, length);
+       memset(buf + length, 0, dev->output_report_length - length);
+       length = dev->output_report_length;
+    }
+    res = WriteFile(dev->device_handle, buf, length, NULL, &ol);
+    if (!res) {
+        if (GetLastError() != ERROR_IO_PENDING) {
+            // WriteFile() failed. Return error.
+            register_error(dev, "WriteFile");
+            if (buf != data)
+                free(buf);
+            return -1;
+        }
+    }
+
+    // Wait here until the write is done. This makes
+    // hid_write() synchronous.
+    res = GetOverlappedResult(dev->device_handle, &ol, &bytes_written, TRUE/*wait*/);
+    if (!res) {
+        // The Write operation failed.
+        register_error(dev, "WriteFile");
+        if (buf != data)
+            free(buf);
+        return -1;
+    }
+    if (buf != data)
+        free(buf);
+    return bytes_written;
 }
+
 int HID_API_EXPORT HID_API_CALL hid_read(hid_device *dev, unsigned char *data, size_t length)
 {
     return hid_read_timeout(dev, data, length, (dev->blocking)? -1: 0);
@@ -1791,7 +1820,7 @@ static void hid_device_removal_callback(HANDLE handle, const char* device_path)
         connect_device_info = NULL;
     }
     if(NULL == handle || INVALID_HANDLE_VALUE == handle){
-        device_handle = open_device(device_path);
+        device_handle = open_device(device_path, FALSE );
         if(device_handle && INVALID_HANDLE_VALUE != device_handle){
            connect_device_info = hid_device_info_create(device_handle, device_path);
         }
@@ -1821,7 +1850,7 @@ static void hid_device_matching_callback(const char *device_path)
     if(NULL!=connect_device_info){
         hid_device_info_free(connect_device_info);
     }
-    device_handle = open_device(device_path);
+    device_handle = open_device(device_path, FALSE);
     if(NULL == device_handle)
         return;
 
