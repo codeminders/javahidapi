@@ -411,8 +411,8 @@ int main(int argc, char* argv[])
     
     // Open the device using the VID, PID,
     // and optionally the Serial number.
-   // handle = hid_open(0x4d8, 0x3f, NULL);
-    handle = hid_open(0x4f3, 0x216, NULL);
+    handle = hid_open(0x5ac, 0x8242, NULL);
+   // handle = hid_open(0x4f3, 0x216, NULL);
     if (!handle) {
         printf("unable to open device\n");
          goto quit;
@@ -485,9 +485,9 @@ int main(int argc, char* argv[])
     memset(buf,0,sizeof(buf));
 
     // Toggle LED (cmd 0x80). The first byte is the report number (0x1).
-    buf[0] = 0x1;
+    buf[0] = 0x00;
     buf[1] = 0x80;
-    res = hid_write(handle, buf, 17);
+	res = hid_write(handle, buf, 17);
     if (res < 0) {
         printf("Unable to write()\n");
         printf("Error: %ls\n", hid_error(handle));

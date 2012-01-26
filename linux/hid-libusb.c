@@ -40,6 +40,7 @@ http://github.com/signal11/hidapi .
 #include <fcntl.h>
 #include <pthread.h>
 #include <linux/types.h>
+//#include <linux/time.h>
 #include <linux/hidraw.h>
 #include <linux/version.h>
 #include <libudev.h> 
@@ -76,7 +77,7 @@ extern "C" {
        (ts)->tv_nsec = (tv)->tv_usec * 1000;  \
    } while (0)
 
-//#define  DEBUG
+//#define  DEBUG  1
 
 #if HID_DEVICE_SUPPORT_CONNECT 
 
@@ -585,10 +586,7 @@ struct hid_device_info  HID_API_EXPORT *hid_enumerate(unsigned short vendor_id, 
     
     setlocale(LC_ALL,"");
     
-    if (!initialized) {
-        libusb_init(NULL);
-        initialized = 1;
-    }
+    hid_init();
     
     num_devs = libusb_get_device_list(usb_context, &devs);
     if (num_devs < 0)
@@ -932,10 +930,7 @@ hid_device * HID_API_EXPORT hid_open_path(const char *path)
     
     setlocale(LC_ALL,"");
     
-    if (!initialized) {
-        libusb_init(NULL);
-        initialized = 1;
-    }
+    hid_init();
     
     num_devs = libusb_get_device_list(usb_context, &devs);
     if (num_devs < 0)
@@ -1332,16 +1327,16 @@ static void hid_device_info_free(struct hid_device_info *dev_info)
 {
     if(dev_info){
         if(dev_info->path){
-           free(dev_info->path);
+          free(dev_info->path);
         }
         if(dev_info->serial_number){
-           free(dev_info->serial_number);
+          free(dev_info->serial_number);
         }
         if(dev_info->manufacturer_string){
-           free(dev_info->manufacturer_string);
+          free(dev_info->manufacturer_string);
         }
         if(dev_info->product_string){
-           free(dev_info->product_string);
+          free(dev_info->product_string);
         }
         free(dev_info);
     }
@@ -1487,8 +1482,7 @@ libusb_device_notify *hid_enum_notify_devices()
     
     setlocale(LC_ALL,"");
     
-    if (!initialized)
-        hid_init();
+    hid_init();
     
     num_devs = libusb_get_device_list(usb_context, &devs);
     if (num_devs < 0)
@@ -1876,7 +1870,7 @@ static void hid_register_remove_callback(hid_device_callback callBack, hid_devic
     if (NULL == callBack)
         return;
     
-    if (NULL == connect_callback_list)
+    if(NULL == connect_callback_list)
         return;
     
     pthread_mutex_lock(&connect_callback_mutex);
@@ -1914,28 +1908,17 @@ static void hid_register_remove_callback(hid_device_callback callBack, hid_devic
     }
     pthread_mutex_unlock(&connect_callback_mutex);
 }
-
+    
 int  HID_API_EXPORT HID_API_CALL hid_add_notification_callback(hid_device_callback callBack, void *context)
 {
     int result = -1;
-    
-    /* Set up the HID Manager if it hasn't been done */
-    
-    if (KERN_SUCCESS != hid_init())
-        return result;
-    
     /* register device matching callback */
-    
     result = hid_register_add_callback(callBack, context);
-    
     return result;
 }
 
 void HID_API_EXPORT HID_API_CALL hid_remove_notification_callback(hid_device_callback  callBack, void *context)
 {
-    /* Set up the HID Manager if it hasn't been done */
-    if(KERN_SUCCESS != hid_init())
-        return;
     /* register device remove callback */
     hid_register_remove_callback(callBack, context);
 }
