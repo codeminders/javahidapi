@@ -8,7 +8,10 @@
 
 
 JNIOBJS=HIDManager.o HIDDeviceInfo.o HIDDevice.o hid-java.o
-JNIINCLUDES=-I.. -I../jni-impl -I/usr/lib/jvm/java-6-openjdk/include/ -I../jni-impl -I/usr/lib/jvm/jdk1.7.0/include -I../jni-impl -I/usr/lib/jvm/jdk1.7.0/include/linux -I/usr/java/jdk1.7.0_02/include -I/usr/java/jdk1.7.0_02/include/linux
+JAVA5HEADERS=-I/opt/jdk1.5.0/include/ -I/opt/jdk1.5.0/include/linux
+JAVA6HEADERS=-I/usr/lib/jvm/java-6-openjdk/include/ -I/usr/lib/jvm/java-6-openjdk/include/linux
+JAVA7HEADERS=-I/opt/jdk1.7.0_02/include/ -I/opt/jdk1.7.0_02/include/linux
+JNIINCLUDES=-I.. -I../jni-impl $(JAVA5HEADERS) $(JAVA6HEADERS) $(JAVA7HEADERS)
 JNILIBS=
 JNISHAREDLIB=libhidapi-jni.so
 JNISHAREDLIBVER=1.0
