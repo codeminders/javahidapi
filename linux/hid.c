@@ -141,6 +141,7 @@ hid_device *new_hid_device()
     dev->blocking = 1;
     dev->uses_numbered_reports = 0;
     dev->ref_count = 1;
+    dev->next = NULL;
     
     /* Add the new record to the device_list. */
     
@@ -329,8 +330,6 @@ static int get_device_string(hid_device *dev, const char *key, wchar_t *string, 
     struct stat s;
     int ret = -1;
     
-    setlocale(LC_ALL,"");
-    
     /* Create the udev object */
     udev = udev_new();
     if (!udev) {
@@ -354,7 +353,7 @@ static int get_device_string(hid_device *dev, const char *key, wchar_t *string, 
             if (str) {
                 /* Convert the string from UTF-8 to wchar_t */
                 //ret = mbstowcs(string, str, maxlen);
-                ret = mbstowcs(string, str, maxlen)==-1?-1:0;
+                ret = mbstowcs(string, str, maxlen) < 0?-1:0;
                 goto end;
             }
         }
@@ -371,7 +370,12 @@ end:
 
 int HID_API_EXPORT hid_init(void)
 {
-    /* Nothing to do for this in the Linux/hidraw implementation. */
+   const char *locale;
+   /* Set the locale if it's not set. */
+   locale = setlocale(LC_CTYPE, NULL);
+   if (!locale)
+       setlocale(LC_CTYPE, "");
+    hid_init_connect();
     return 0;
 }
 
@@ -392,7 +396,7 @@ struct hid_device_info  HID_API_EXPORT *hid_enumerate(unsigned short vendor_id, 
     struct hid_device_info *root = NULL; // return object
     struct hid_device_info *cur_dev = NULL;
     
-    setlocale(LC_ALL,"");
+    hid_init();
     
     /* Create the udev object */
     udev = udev_new();
@@ -574,6 +578,8 @@ hid_device * HID_API_EXPORT hid_open_path(const char *path)
     dev = get_hid_device_path(path);
     if(dev)
         return dev;
+
+    hid_init();
     
     dev = new_hid_device();
     
@@ -771,11 +777,9 @@ static struct hid_device_info* hid_device_info_create(struct udev_device *hid_de
     unsigned short dev_pid;
     size_t len = 0;
     
-      if(!hid_dev){
+      if( !hid_dev){
         return NULL;
     }
-    
-    setlocale(LC_ALL,"");
     
     /* The device pointed to by hid_dev contains information about
      the hidraw device. In order to get information about the
@@ -858,15 +862,15 @@ static struct hid_device_info* hid_device_info_create(struct udev_device *hid_de
 
 static void hid_device_info_free(struct hid_device_info *dev_info)
 {
-    if (dev_info) {
+    if(dev_info){
         if(dev_info->path)
-           free(dev_info->path);
+          free(dev_info->path);
         if(dev_info->serial_number)
-           free(dev_info->serial_number);
+          free(dev_info->serial_number);
         if(dev_info->manufacturer_string)
-           free(dev_info->manufacturer_string);
+          free(dev_info->manufacturer_string);
         if(dev_info->product_string)
-           free(dev_info->product_string);
+          free(dev_info->product_string);
         free(dev_info);
     }
 }
@@ -934,9 +938,9 @@ void hid_device_unlock(udev_state* udev)
     
 static void hid_dev_notify_free(udev_notify *dev_notify)
 {
-    if (dev_notify)
+    if(dev_notify)
     {
-        if (dev_notify->dev)
+        if(dev_notify->dev)
         {
             udev_device_unref(dev_notify->dev);
             dev_notify->dev = NULL;
@@ -956,12 +960,12 @@ static void hid_remove_notify(udev_notify *dev)
     
     // Remove from list
     c = dev_state->udev_notify;
-    if (c == dev) {
+    if(c == dev){
         dev_state->udev_notify = c->next;
     }
     else
     {
-        while( c ) {
+        while( c ){
             if (c->next) {
                 if (c->next == dev) {
                     c->next = c->next->next;
@@ -1022,11 +1026,11 @@ static udev_notify* hid_set_notify(struct udev_device *dev)
         
         tmp->info = hid_device_info_create(dev);
         
-        if(dev_state->udev_notify) {       
+        if(dev_state->udev_notify){       
             tmp->next = dev_state->udev_notify;
             dev_state->udev_notify = tmp;
         }
-        else {
+        else{
             dev_state->udev_notify = tmp;
         }
         return tmp;
@@ -1166,13 +1170,14 @@ static void *hid_monitor_thread(void *param)
             if (dev) {
                 udev_notify* udev  = 0;
                 const char *action = udev_device_get_action(dev);
-                if (strcmp(action, DEV_ACTION_ADD) == 0) {
+                if(strcmp(action, DEV_ACTION_ADD) == 0)
+                {
                     udev = hid_set_notify(dev);
-                    if(udev) {
+                    if(udev){
                         hid_device_matching_callback_result(udev); //dev
                     }
                 }
-                else if(strcmp(action, DEV_ACTION_REMOVE) == 0) {
+                else if(strcmp(action, DEV_ACTION_REMOVE) == 0){
                     udev = hid_get_notify(dev);
                     if(udev){
                       hid_device_removal_callback_result(udev); //dev 
@@ -1202,8 +1207,8 @@ static int hid_monitor_startup()
     if(NULL != dev_state)
         return -1;
     
-    if (dev_state) {
-        if (!dev_state->shutdown_thread)
+    if(dev_state){
+        if(!dev_state->shutdown_thread)
             return -1;
     }
     udev = udev_new();
@@ -1268,7 +1273,7 @@ static int hid_monitor_shutdown(void)
 static int hid_connect_registered(hid_device_callback callBack, void *context)
 {
     hid_device_callback_connect *c = NULL;
-    if (!connect_callback_list) {
+    if (!connect_callback_list){
         return -1;
     }
     c = connect_callback_list;
@@ -1284,17 +1289,13 @@ static int hid_connect_registered(hid_device_callback callBack, void *context)
 
 int hid_init_connect()
 {
-    if(NULL==connect_callback_list) {
-        hid_monitor_startup();
-    }
-    return TRUE;
+   hid_monitor_startup();
+   return TRUE;
 }
 
 void hid_deinit_connect()
 {
-    if(NULL==connect_callback_list) {
-      hid_monitor_shutdown();
-    }
+   hid_monitor_shutdown();
 }
 
 static int hid_register_add_callback(hid_device_callback callBack, hid_device_context context)
@@ -1312,7 +1313,7 @@ static int hid_register_add_callback(hid_device_callback callBack, hid_device_co
     pthread_mutex_lock(&connect_callback_mutex);
     
     // check if has been registered callback
-    if(hid_connect_registered(callBack,context)==0) {
+    if(hid_connect_registered(callBack,context)==0){
         pthread_mutex_unlock(&connect_callback_mutex);
         return 0;
     }
@@ -1382,11 +1383,6 @@ static void hid_register_remove_callback(hid_device_callback callBack, hid_devic
 int  HID_API_EXPORT HID_API_CALL hid_add_notification_callback(hid_device_callback callBack, void *context)
 {
     int result = -1;
-    
-    /* Set up the HID Manager if it hasn't been done */
-    if(KERN_SUCCESS != hid_init())
-        return result;
-    
     /* register device matching callback */
     result = hid_register_add_callback(callBack, context);
     return result;
@@ -1394,9 +1390,6 @@ int  HID_API_EXPORT HID_API_CALL hid_add_notification_callback(hid_device_callba
 
 void HID_API_EXPORT HID_API_CALL hid_remove_notification_callback(hid_device_callback  callBack, void *context)
 {
-    /* Set up the HID Manager if it hasn't been done */
-    if(KERN_SUCCESS != hid_init())
-        return;
     /* register device remove callback */
     hid_register_remove_callback(callBack,context);
 }
