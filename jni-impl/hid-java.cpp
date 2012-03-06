@@ -39,7 +39,7 @@ void throwIOException(JNIEnv *env, hid_device *device)
 char* convertToUTF8(JNIEnv *env, const wchar_t *str)
 {
 #ifdef _WIN32
-    size_t sz = WideCharToMultiByte(CP_UTF8, 0, str, -1, NULL, 0, NULL, NULL);    
+    int sz = WideCharToMultiByte(CP_UTF8, 0, str, -1, NULL, 0, NULL, NULL);    
     char *ret = (char *) malloc(sz + 1); 
     WideCharToMultiByte(CP_UTF8, 0, str, -1, ret, sz, NULL, NULL);    
     return ret;
