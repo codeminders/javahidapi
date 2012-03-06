@@ -77,7 +77,7 @@ extern "C" {
        (ts)->tv_nsec = (tv)->tv_usec * 1000;  \
    } while (0)
 
-//#define  DEBUG  1
+//#define  DEBUG
 
 #if HID_DEVICE_SUPPORT_CONNECT 
 
@@ -95,9 +95,8 @@ typedef  struct _libusb_device_notify libusb_device_notify;
 struct _libusb_device_notify {
     int interface_num;
     char path[MAX_PATH];
-    unsigned short vid;
-    unsigned short pid;
     int fconnect;        
+    struct hid_device_info *info;
     libusb_device_handle *handle;
     libusb_device *dev;
     libusb_device_notify *next;
@@ -215,6 +214,7 @@ static hid_device *new_hid_device(void)
     dev->shutdown_thread = 0;
     dev->transfer = NULL;
     dev->input_reports = NULL;
+    dev->next = NULL;
     
     pthread_mutex_init(&dev->mutex, NULL);
     pthread_cond_init(&dev->condition, NULL);
@@ -256,7 +256,7 @@ static void free_hid_device(hid_device *dev)
     /* Remove it from the device list. */
     
     pthread_mutex_lock(&device_list_mutex);
-    
+
     hid_device *d = device_list;
     if (d == dev) {
         device_list = d->next;
@@ -272,9 +272,7 @@ static void free_hid_device(hid_device *dev)
     }
     
     pthread_mutex_unlock(&device_list_mutex);
-    
     /* Free the device itself */
-    libusb_close(dev->device_handle);
     free(dev);
 }
 
@@ -554,12 +552,17 @@ static hid_device* get_hid_device_path(const char *path)
 
 int hid_init(void)
 {
-    if (!usb_context) {
-        if(libusb_init(&usb_context))
-           return -1;
-        hid_init_connect();
-    }
-    return 0;
+  if (!usb_context) {
+      const char *locale;
+      if(libusb_init(&usb_context))
+         return -1;
+      /* Set the locale if it's not set. */
+         locale = setlocale(LC_CTYPE, NULL);
+         if (!locale)
+             setlocale(LC_CTYPE, "");
+      hid_init_connect();
+  }
+  return 0;
 }
 
 int hid_exit(void)
@@ -583,8 +586,6 @@ struct hid_device_info  HID_API_EXPORT *hid_enumerate(unsigned short vendor_id, 
     
     struct hid_device_info *root = NULL; // return object
     struct hid_device_info *cur_dev = NULL;
-    
-    setlocale(LC_ALL,"");
     
     hid_init();
     
@@ -637,9 +638,14 @@ struct hid_device_info  HID_API_EXPORT *hid_enumerate(unsigned short vendor_id, 
                             cur_dev->path = make_path(dev, interface_num);
                             
                             res = libusb_open(dev, &handle);
-                            
+                            if( res == LIBUSB_ERROR_ACCESS) 
+                            {
+#ifdef DEBUG
+                            printf("Cannot open device: error = %d\n", res);
+#endif
+                            }
                             if (res >= 0) {
-                                /* Serial Number */
+                               /* Serial Number */
                                 if (desc.iSerialNumber > 0)
                                     cur_dev->serial_number =
                                     get_usb_string(handle, desc.iSerialNumber);
@@ -880,11 +886,7 @@ static void *read_thread(void *param)
     /* Handle all the events. */
     while (!dev->shutdown_thread) {
         int res;
-        struct timeval tv;
-        
-        tv.tv_sec = 0;
-        tv.tv_usec = 100; //TODO: Fix this value.
-        res = libusb_handle_events_timeout(usb_context, &tv);
+        res = libusb_handle_events(usb_context);
         if (res < 0) {
             /* There was an error. Break out of this loop. */
             break;
@@ -897,6 +899,16 @@ static void *read_thread(void *param)
         /* The transfer was cancelled, so wait for its completion. */
         libusb_handle_events(usb_context);
     }
+    
+    /* Now that the read thread is stopping, Wake any threads which are
+     waiting on data (in hid_read_timeout()). Do this under a mutex to
+     make sure that a thread which is about to go to sleep waiting on
+     the condition acutally will go to sleep before the condition is
+     signaled. */
+     
+     pthread_mutex_lock(&dev->mutex);
+     pthread_cond_broadcast(&dev->condition);
+     pthread_mutex_unlock(&dev->mutex);
     
     /* The dev->transfer->buffer and dev->transfer objects are cleaned up
      in hid_close(). They are not cleaned up here because this thread
@@ -928,8 +940,6 @@ hid_device * HID_API_EXPORT hid_open_path(const char *path)
     int d = 0;
     int good_open = 0;
     
-    setlocale(LC_ALL,"");
-    
     hid_init();
     
     num_devs = libusb_get_device_list(usb_context, &devs);
@@ -957,6 +967,9 @@ hid_device * HID_API_EXPORT hid_open_path(const char *path)
                         res = libusb_open(usb_dev, &dev->device_handle);
                         if (res < 0) {
                             LOG("can't open device\n");
+#ifdef DEBUG
+                            printf("Error = %d\n", res);
+#endif
                             break;
                         }
                         good_open = 1;
@@ -1111,6 +1124,10 @@ static int return_data(hid_device *dev, unsigned char *data, size_t length)
     /* Copy the data out of the linked list item (rpt) into the
      return buffer (data), and delete the liked list item. */
     struct input_report *rpt = dev->input_reports;
+    
+    if(rpt == NULL)
+      return 0;
+    
     size_t len = (length < rpt->len)? length: rpt->len;
     if (len > 0)
         memcpy(data, rpt->data, len);
@@ -1118,6 +1135,13 @@ static int return_data(hid_device *dev, unsigned char *data, size_t length)
     free(rpt->data);
     free(rpt);
     return len;
+}
+    
+    
+static void cleanup_mutex(void *param)
+{
+    hid_device *dev = param;
+    pthread_mutex_unlock(&dev->mutex);
 }
  
 static int cond_timedwait(const hid_device *dev, pthread_cond_t *cond, pthread_mutex_t *mutex, const struct timespec *abstime)
@@ -1149,6 +1173,7 @@ int HID_API_EXPORT hid_read_timeout(hid_device *dev, unsigned char *data, size_t
 #endif
     
     pthread_mutex_lock(&dev->mutex);
+    pthread_cleanup_push(&cleanup_mutex, dev);
     
     /* There's an input report queued up. Return it. */
     if (dev->input_reports) {
@@ -1164,43 +1189,64 @@ int HID_API_EXPORT hid_read_timeout(hid_device *dev, unsigned char *data, size_t
         goto ret;
     }
     
-    if (dev->blocking) {
-        pthread_cond_wait(&dev->condition, &dev->mutex);
-        bytes_read = return_data(dev, data, length);
+    if (milliseconds == -1) {
+        /* Blocking */
+        while (!dev->input_reports && !dev->shutdown_thread) {
+            pthread_cond_wait(&dev->condition, &dev->mutex);
+        }
+        if (dev->input_reports) {
+            bytes_read = return_data(dev, data, length);
+        }
     }
     else if (milliseconds > 0) {
         /* Non-blocking, but called with timeout. */
         int res;
         struct timespec ts;
-        struct timeval tv;
-        TIMEVAL_TO_TIMESPEC(&tv, &ts);
+        clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_sec += milliseconds / 1000;
         ts.tv_nsec += (milliseconds % 1000) * 1000000;
         if (ts.tv_nsec >= 1000000000L) {
             ts.tv_sec++;
             ts.tv_nsec -= 1000000000L;
         }
-        res = cond_timedwait(dev, &dev->condition, &dev->mutex, &ts);
-        if (res == 0)
-            bytes_read = return_data(dev, data, length);
-        else if (res == ETIMEDOUT)
-            bytes_read = 0;
-        else
-            bytes_read = -1;
+        while (!dev->input_reports && !dev->shutdown_thread) {
+            res = pthread_cond_timedwait(&dev->condition, &dev->mutex, &ts);
+            if (res == 0) {
+                if (dev->input_reports) {
+                    bytes_read = return_data(dev, data, length);
+                    break;
+                }
+                /* If we're here, there was a spurious wake up
+                 or the read thread was shutdown. Run the
+                 loop again (ie: don't break). */
+            }
+            else if (res == ETIMEDOUT) {
+               /* Time out */
+                bytes_read = 0;
+                break;
+            }
+            else {
+               /* Error */
+                bytes_read = -1;
+                break;
+            }
+        }
     }
     else {
+        /* Purely non-blocking */
         bytes_read = 0;
     }
     
 ret:
     pthread_mutex_unlock(&dev->mutex);
+    pthread_cleanup_pop(0);
         
     return bytes_read;
 }
 
 int HID_API_EXPORT hid_read(hid_device *dev, unsigned char *data, size_t length)
 {
-    return hid_read_timeout(dev, data, length, 0);    
+    return hid_read_timeout(dev, data, length, dev->blocking ? -1 : 0);    
 }
 
 int HID_API_EXPORT hid_set_nonblocking(hid_device *dev, int nonblock)
@@ -1284,23 +1330,29 @@ static struct hid_device_info* hid_device_info_create(libusb_device_notify *hid_
     if(!hid_dev){
         return NULL;
     }
-    setlocale(LC_ALL,"");
-    
+        
     dev_info = calloc(1, sizeof(struct hid_device_info));
     dev_info->path = strdup(hid_dev->path);
     
     dev = hid_dev->dev;
     handle = hid_dev->handle;
     
-    dev_info->vendor_id =  hid_dev->vid;
-    dev_info->product_id = hid_dev->pid;
     
     if(dev){
         libusb_get_device_descriptor(dev, &desc);
         if(NULL == handle){
             res = libusb_open(dev, &handle);
+            if( 0 < res) {
+#ifdef DEBUG
+                printf("Cannot open device:error = %d\n", res);
+#endif
+            }
         }
     }
+
+    dev_info->vendor_id =  desc.idVendor;
+    dev_info->product_id = desc.idProduct;
+
     dev_info->serial_number = 0;
     dev_info->manufacturer_string = 0;
     dev_info->product_string = 0;
@@ -1354,10 +1406,7 @@ static void hid_device_removal_callback_result(libusb_device_notify *hid_dev)
 {
     hid_device_callback_connect *c = NULL;
     
-    if(NULL!=connect_device_info){
-        hid_device_info_free(connect_device_info);
-    }
-    connect_device_info = hid_device_info_create(hid_dev);
+    connect_device_info = (hid_dev)?hid_dev->info:NULL;
     
     pthread_mutex_lock(&connect_callback_mutex);
     
@@ -1375,11 +1424,7 @@ static void hid_device_matching_callback_result(libusb_device_notify *hid_dev)
 {
     hid_device_callback_connect *c = NULL;
     
-    if(NULL!=connect_device_info){
-        hid_device_info_free(connect_device_info);
-    }
-    
-    connect_device_info = hid_device_info_create(hid_dev);
+    connect_device_info = (hid_dev)?hid_dev->info:NULL;
     
     pthread_mutex_lock(&connect_callback_mutex);
     
@@ -1406,6 +1451,10 @@ void hid_dev_notify_free(libusb_device_notify *dev_notify)
         {
             libusb_unref_device(dev_notify->dev);
             dev_notify->dev = NULL;
+        }
+        if(dev_notify->info)
+        {
+            hid_device_info_free(dev_notify->info);
         }
         free(dev_notify);
     }
@@ -1480,8 +1529,6 @@ libusb_device_notify *hid_enum_notify_devices()
     
     int i = 0;
     
-    setlocale(LC_ALL,"");
-    
     hid_init();
     
     num_devs = libusb_get_device_list(usb_context, &devs);
@@ -1528,9 +1575,8 @@ libusb_device_notify *hid_enum_notify_devices()
                         curr->dev = libusb_ref_device(dev);
                         curr->interface_num = interface_num;
                         curr->fconnect = HID_ADD_MATCH;
-                        curr->vid = dev_vid;
-                        curr->pid = dev_pid;
                         curr->handle = NULL;
+                        curr->info = hid_device_info_create(curr);
                         curr->next = NULL;
                     }
                 }
@@ -1587,7 +1633,6 @@ int check_devices_on_connect(libusb_device_notify **dev_notify)
     
     (*dev_notify) = NULL;
     
-    setlocale(LC_ALL,"");
     
     num_devs = libusb_get_device_list(usb_context, &devs);
     if (num_devs < 0){
@@ -1621,7 +1666,7 @@ int check_devices_on_connect(libusb_device_notify **dev_notify)
                         libusb_device_notify *d = root;
                         isConnect = HID_ADD_MATCH;
                         while(d){
-                            if(d->vid == dev_vid && d->pid == dev_pid) {
+                            if(d->info->vendor_id == dev_vid && d->info->product_id == dev_pid) {
                                 isConnect = HID_REMOVE_MATCH;
                                 d->fconnect = HID_NO_MATCH;
                                 break;    
@@ -1642,12 +1687,11 @@ int check_devices_on_connect(libusb_device_notify **dev_notify)
                             /* Fill out the record */
                             strcpy(tmp->path, dev_path);
                             free(dev_path);
-                            tmp->vid = dev_vid;
-                            tmp->pid = dev_pid;
-                            tmp->dev = libusb_ref_device(dev);
                             tmp->interface_num = interface_num;
+                            tmp->dev = libusb_ref_device(dev);
                             tmp->handle = NULL;
-                            tmp->fconnect = HID_ADD_MATCH;                        
+                            tmp->fconnect = HID_ADD_MATCH; 
+                            tmp->info = hid_device_info_create(tmp);
                             (*dev_notify) = tmp;
                             isQuit = 1;
                         }
@@ -1814,9 +1858,7 @@ static int hid_connect_registered(hid_device_callback callBack, hid_device_conte
 
 int hid_init_connect()
 {
-    if(NULL==connect_callback_list){
-        hid_monitor_startup();
-    }
+    hid_monitor_startup();
     return TRUE;
 }
 
