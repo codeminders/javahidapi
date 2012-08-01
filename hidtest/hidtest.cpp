@@ -201,7 +201,7 @@ static int init_hid_mgr()
 
 static void hid_test_multiplies()
 {
-	const int numTimes = 10;
+    const int numTimes = 1;
 	for(int i = 0; i < numTimes; i++)
 	{
       hid_init_1();
@@ -522,7 +522,7 @@ int main(int argc, char* argv[])
     for (i = 0; i < res; i++)
         printf("%02hhx ", buf[i]);
     printf("\n");
-
+    hid_close(handle);
 quit:
 #ifdef _WIN32
     system("pause");

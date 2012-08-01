@@ -22,6 +22,8 @@ code repository located at:
 http://github.com/signal11/hidapi .
 ********************************************************/
 
+#define _GNU_SOURCE // needed for wcsdup() before glibc 2.10
+
 /* C */
 #include <stdio.h>
 #include <string.h>
@@ -44,6 +46,7 @@ http://github.com/signal11/hidapi .
 #include <linux/hidraw.h>
 #include <linux/version.h>
 #include <libudev.h> 
+#include <wchar.h>
 
 /* GNU / LibUSB */
 #include "libusb.h"
@@ -54,7 +57,7 @@ http://github.com/signal11/hidapi .
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+//#define DEBUG_PRINTF
 #ifdef DEBUG_PRINTF
 #define LOG(...) fprintf(stderr, __VA_ARGS__)
 #else
@@ -78,7 +81,6 @@ extern "C" {
    } while (0)
 
 //#define  DEBUG
-
 #if HID_DEVICE_SUPPORT_CONNECT 
 
 enum devicematch
@@ -88,16 +90,16 @@ enum devicematch
     HID_REMOVE_MATCH = -1    
 };
 
+#define HASH_SIZE  16
+#define HASH_MASK  0x0F
 
 typedef struct _libusb_state libusb_state;
 typedef  struct _libusb_device_notify libusb_device_notify;
 
 struct _libusb_device_notify {
     int interface_num;
-    char path[MAX_PATH];
     int fconnect;        
     struct hid_device_info *info;
-    libusb_device_handle *handle;
     libusb_device *dev;
     libusb_device_notify *next;
 };
@@ -110,7 +112,16 @@ struct _libusb_state {
     pthread_mutex_t notify_lock;
     pthread_t thread;
 };
+typedef struct _hash_entry hash_entry;
 
+struct _hash_entry {
+   libusb_device_notify **devs;
+   int num;
+   int max;
+};
+    
+    
+typedef hash_entry hash_map[HASH_SIZE];
 
 /* Register callbacks implementation*/
 
@@ -130,12 +141,10 @@ static hid_device_callback_connect *connect_callback_list = NULL;
 static struct hid_device_info *connect_device_info = NULL;
 static libusb_state *dev_state  = NULL;
 
-/* Static list of all the devices open. This way when a device gets
- disconnected, its hid_device structure can be marked as disconnected
- from hid_device_removal_callback(). */
-static hid_device *device_list = NULL;
-static pthread_mutex_t device_list_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t connect_callback_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t hid_lib_init_mutex = PTHREAD_MUTEX_INITIALIZER;    
+    
+static hash_map hid_hash_map;
 
 
 /* Declare of inner functions*/
@@ -144,6 +153,13 @@ int hid_init_connect();
 void hid_deinit_connect();
 
 #endif //HID_DEVICE_SUPPORT_CONNECT
+
+/* Static list of all the devices open. This way when a device has been opened
+ the ref_count of its hid_device structure increases on 1,
+ when a device has been closed the ref_count decreases on 1.
+*/
+static hid_device *device_list = NULL;
+static pthread_mutex_t device_list_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* Uncomment to enable the retrieval of Usage and Usage Page in
  hid_enumerate(). Warning, this is very invasive as it requires the detach
@@ -569,6 +585,7 @@ int hid_exit(void)
 {
     /* Nothing to do for this in the Linux/hidraw implementation. */
     if (usb_context) {
+        hid_remove_all_notification_callbacks();
         hid_deinit_connect();
         libusb_exit(usb_context);
         usb_context = NULL;
@@ -588,6 +605,8 @@ struct hid_device_info  HID_API_EXPORT *hid_enumerate(unsigned short vendor_id, 
     struct hid_device_info *cur_dev = NULL;
     
     hid_init();
+    
+    pthread_mutex_lock(&dev_state->notify_lock);
     
     num_devs = libusb_get_device_list(usb_context, &devs);
     if (num_devs < 0)
@@ -640,9 +659,7 @@ struct hid_device_info  HID_API_EXPORT *hid_enumerate(unsigned short vendor_id, 
                             res = libusb_open(dev, &handle);
                             if( res == LIBUSB_ERROR_ACCESS) 
                             {
-#ifdef DEBUG
-                            printf("Cannot open device: error = %d\n", res);
-#endif
+                                LOG("Cannot open device: error = %d\n", res);    
                             }
                             if (res >= 0) {
                                /* Serial Number */
@@ -650,13 +667,21 @@ struct hid_device_info  HID_API_EXPORT *hid_enumerate(unsigned short vendor_id, 
                                     cur_dev->serial_number =
                                     get_usb_string(handle, desc.iSerialNumber);
                                 
+                                LOG("Serial number = %ls\n",cur_dev->serial_number);
+                                
                                 /* Manufacturer and Product strings */
                                 if (desc.iManufacturer > 0)
                                     cur_dev->manufacturer_string =
                                     get_usb_string(handle, desc.iManufacturer);
+                                
+                                LOG("Manufacturer string = %ls\n", cur_dev->manufacturer_string);
+                                
+                                
                                 if (desc.iProduct > 0)
                                     cur_dev->product_string =
                                     get_usb_string(handle, desc.iProduct);
+                                
+                                LOG("Product string = %ls\n",cur_dev->product_string);
                                 
 #ifdef INVASIVE_GET_USAGE
                                 /*
@@ -737,6 +762,7 @@ struct hid_device_info  HID_API_EXPORT *hid_enumerate(unsigned short vendor_id, 
     }
     
     libusb_free_device_list(devs, 1);
+    pthread_mutex_unlock(&dev_state->notify_lock);
     
     return root;
 }
@@ -966,10 +992,7 @@ hid_device * HID_API_EXPORT hid_open_path(const char *path)
                         // OPEN HERE //
                         res = libusb_open(usb_dev, &dev->device_handle);
                         if (res < 0) {
-                            LOG("can't open device\n");
-#ifdef DEBUG
-                            printf("Error = %d\n", res);
-#endif
+                            LOG("can't open device: error = %d\n",res);
                             break;
                         }
                         good_open = 1;
@@ -1319,10 +1342,123 @@ int HID_API_EXPORT hid_get_feature_report(hid_device *dev, unsigned char *data, 
 
 #if HID_DEVICE_SUPPORT_CONNECT
 
+#define STEP_SIZE 8    
+static void hid_setsize_hash(int hkey, int nsize)
+{
+   hash_entry *entry = &hid_hash_map[hkey];
+   if(entry)
+   {
+     if(nsize>=entry->max)
+     {
+       entry->max=nsize+STEP_SIZE;
+       if(entry->devs)
+          entry->devs = (libusb_device_notify**)realloc(entry->devs,entry->max*sizeof(libusb_device_notify*));
+       else 
+          entry->devs = (libusb_device_notify**)malloc(entry->max*sizeof(libusb_device_notify*));
+     }
+   }
+}
+static int hid_generate_key(const int vid, const int pid) 
+{
+  return (vid + pid) & HASH_MASK; 
+}
+ 
+static int hid_find_hash(int vid, int pid, libusb_device_notify** dev)
+{
+    int hkey = hid_generate_key(vid,pid);
+    hash_entry *entry = &hid_hash_map[hkey];
+    int iRet = -1;
+    if(entry){
+      int i = 0;
+      for(i=0;i<entry->num;i++){
+         if(entry->devs[i]->info == NULL)
+            continue;
+         if(entry->devs[i]->info->vendor_id == vid &&
+            entry->devs[i]->info->product_id == pid){
+             iRet = i;
+             if(dev){
+                (*dev) = entry->devs[i];
+             }
+             break;
+         }
+      }
+    }
+    return iRet;
+}
+
+static void hid_hash_add(libusb_device_notify *dev)
+{
+  int hkey=-1;
+  hash_entry *entry=NULL;
+  if (!dev)
+      return;
+  if(!dev->info)
+      return;
+  hkey = hid_generate_key(dev->info->vendor_id,dev->info->product_id);
+  entry = &hid_hash_map[hkey];
+  hid_setsize_hash(hkey,1);
+  entry->devs[entry->num] = dev;
+  entry->num++;    
+}
+
+static void hid_hash_remove(libusb_device_notify *dev)
+{
+    if (!dev)
+        return;
+    if(!dev->info)
+        return;
+    hash_entry *entry = &hid_hash_map[hid_generate_key(dev->info->vendor_id,dev->info->product_id)];
+    int pos = hid_find_hash(dev->info->vendor_id,dev->info->product_id,NULL);    
+    if(pos!=-1 && pos+1<entry->num) {
+        memcpy(entry->devs+pos,
+               entry->devs+pos+1,
+               (entry->num-pos-1)*sizeof(libusb_device_notify*));    
+    }
+    if(entry->num>0){
+      entry->num--;
+      entry->devs[entry->num]=0;
+    }
+}
+    
+static void hid_init_hash()
+{
+    int i = 0;
+    libusb_device_notify *d = dev_state->dev_notify;
+    for(i = 0; i < HASH_SIZE; i++){
+       memset(&hid_hash_map[i],0,sizeof(hash_entry));
+    }
+    while(d) {
+        hid_hash_add(d);
+        d=d->next;
+    }
+#ifdef DEBUG
+    for(i = 0; i < HASH_SIZE; i++){
+        hash_entry *entry = &hid_hash_map[i];
+        int j = 0;
+        for(j=0; j < entry->num;j++){
+            struct hid_device_info *info = entry->devs[j]->info;
+            printf("From hash type: %04hx %04hx\n",info->vendor_id,info->product_id);
+        }
+    }
+#endif
+}
+
+static void hid_deinit_hash()
+{
+  int i; 
+  for(i = 0; i < HASH_SIZE; i++){
+      if(hid_hash_map[i].devs) {
+         free(hid_hash_map[i].devs);
+         hid_hash_map[i].devs = NULL;
+         hid_hash_map[i].num = 0;
+         hid_hash_map[i].max = 0;
+      }
+  }
+}
+
 static struct hid_device_info* hid_device_info_create(libusb_device_notify *hid_dev)
 {
     struct hid_device_info *dev_info = NULL;
-    struct libusb_device *dev = NULL;
     struct libusb_device_handle *handle = NULL;
     struct libusb_device_descriptor desc;
     int res = -1;
@@ -1332,26 +1468,20 @@ static struct hid_device_info* hid_device_info_create(libusb_device_notify *hid_
     }
         
     dev_info = calloc(1, sizeof(struct hid_device_info));
-    dev_info->path = strdup(hid_dev->path);
     
-    dev = hid_dev->dev;
-    handle = hid_dev->handle;
+    if(hid_dev->dev){
+        libusb_get_device_descriptor(hid_dev->dev, &desc);
     
+        dev_info->vendor_id =  desc.idVendor;
+        dev_info->product_id = desc.idProduct;
     
-    if(dev){
-        libusb_get_device_descriptor(dev, &desc);
-        if(NULL == handle){
-            res = libusb_open(dev, &handle);
+        dev_info->path = make_path(hid_dev->dev, hid_dev->interface_num);
+        
+        res = libusb_open(hid_dev->dev, &handle);
             if( 0 < res) {
-#ifdef DEBUG
-                printf("Cannot open device:error = %d\n", res);
-#endif
-            }
+            LOG("Cannot open device:error = %d\n", res);
         }
     }
-
-    dev_info->vendor_id =  desc.idVendor;
-    dev_info->product_id = desc.idProduct;
 
     dev_info->serial_number = 0;
     dev_info->manufacturer_string = 0;
@@ -1368,7 +1498,6 @@ static struct hid_device_info* hid_device_info_create(libusb_device_notify *hid_
         if (desc.iProduct > 0)
             dev_info->product_string = get_usb_string(handle, desc.iProduct);
         libusb_close(handle);
-        hid_dev->handle = NULL;
     } 
     dev_info->interface_number = hid_dev->interface_num;
     
@@ -1394,6 +1523,30 @@ static void hid_device_info_free(struct hid_device_info *dev_info)
     }
 }
 
+static struct hid_device_info* hid_device_info_dup(struct hid_device_info *info)
+ {
+    struct hid_device_info* dev_info;
+        
+    if(NULL == info)
+        return NULL;
+        
+    dev_info = (struct hid_device_info*)malloc(sizeof(struct hid_device_info));
+    if(dev_info){
+        dev_info->path = strdup(info->path);
+        dev_info->product_id = info->product_id;
+        dev_info->vendor_id = info->vendor_id;
+        dev_info->serial_number = (info->serial_number > 0)?wcsdup(info->serial_number):0;
+        dev_info->product_string = (info->product_string > 0)?wcsdup(info->product_string):0;
+        dev_info->manufacturer_string = (info->manufacturer_string > 0)?wcsdup(info->manufacturer_string):0;
+        dev_info->usage = info->usage;
+        dev_info->usage_page =  info->usage_page;
+        dev_info->interface_number = info->interface_number;
+        dev_info->release_number = info->release_number;
+        dev_info->next = NULL;
+    }
+    return dev_info;
+}    
+
 
 static void  hid_device_callback_connect_free(hid_device_callback_connect *dev_connect)
 {
@@ -1406,9 +1559,12 @@ static void hid_device_removal_callback_result(libusb_device_notify *hid_dev)
 {
     hid_device_callback_connect *c = NULL;
     
-    connect_device_info = (hid_dev)?hid_dev->info:NULL;
-    
     pthread_mutex_lock(&connect_callback_mutex);
+    
+    if(connect_device_info!=NULL){
+        hid_device_info_free(connect_device_info);
+    }
+    connect_device_info = hid_device_info_dup(hid_dev->info);
     
     c = connect_callback_list;
     while (c) {
@@ -1424,29 +1580,25 @@ static void hid_device_matching_callback_result(libusb_device_notify *hid_dev)
 {
     hid_device_callback_connect *c = NULL;
     
-    connect_device_info = (hid_dev)?hid_dev->info:NULL;
-    
     pthread_mutex_lock(&connect_callback_mutex);
+    
+    struct hid_device_info* device_info = (hid_dev)?hid_dev->info:NULL;
     
     c = connect_callback_list;
     while (c) {
         if (c->callback) {
-            (*c->callback)(connect_device_info, device_arrival,c->context);
+            (*c->callback)(device_info, device_arrival,c->context);
         }
         c = c->next;
     }
-    
     pthread_mutex_unlock(&connect_callback_mutex);
+
 }
+
 
 void hid_dev_notify_free(libusb_device_notify *dev_notify)
 {
     if(dev_notify){
-        if(dev_notify->handle > 0)
-        {
-            libusb_close(dev_notify->handle);
-            dev_notify->handle = NULL;
-        }
         if(dev_notify->dev)
         {
             libusb_unref_device(dev_notify->dev);
@@ -1529,8 +1681,6 @@ libusb_device_notify *hid_enum_notify_devices()
     
     int i = 0;
     
-    hid_init();
-    
     num_devs = libusb_get_device_list(usb_context, &devs);
     if (num_devs < 0)
         return NULL;
@@ -1569,13 +1719,9 @@ libusb_device_notify *hid_enum_notify_devices()
                         curr = tmp;
                         num_devs_notify++;
                         /* Fill out the record */
-                        dev_path = make_path(dev, interface_num);
-                        strcpy(curr->path, dev_path);
-                        free(dev_path);
                         curr->dev = libusb_ref_device(dev);
                         curr->interface_num = interface_num;
                         curr->fconnect = HID_ADD_MATCH;
-                        curr->handle = NULL;
                         curr->info = hid_device_info_create(curr);
                         curr->next = NULL;
                     }
@@ -1601,24 +1747,11 @@ int set_devices_flag_connect(int flag)
     return 0;
 }
 
-int printf_devices_info()
-{
-    libusb_device_notify *d = dev_state->dev_notify;
-    while(d)
-    {
-        LOG("Device name = %s type: %04hx %04hx\n", d->path, d->vid, d->pid);
-        d = d->next;
-    }
-    return 0;
-}
-    
-    
 int check_devices_on_connect(libusb_device_notify **dev_notify)
 {
     libusb_device **devs;
     libusb_device *dev;
     libusb_device_notify *root = NULL;
-    libusb_state *state = dev_state;
     ssize_t num_devs = 0;
     ssize_t num_hid_devs = 0;
     
@@ -1626,17 +1759,20 @@ int check_devices_on_connect(libusb_device_notify **dev_notify)
     int isQuit = 0;
     int i = 0;
     
-    if(!dev_notify || !state)
+    if(!dev_notify || !dev_state)
         return -1;
     
-    root = state->dev_notify;
+    pthread_mutex_lock(&dev_state->notify_lock);
+    
+   // root = dev_state->dev_notify;
     
     (*dev_notify) = NULL;
     
-    
     num_devs = libusb_get_device_list(usb_context, &devs);
+    
+    //printf("ON connect devs = %d\n",devs);
+    
     if (num_devs < 0){
-        *dev_notify = NULL;
         return HID_NO_MATCH;
     }
     // set devices to remove
@@ -1663,21 +1799,20 @@ int check_devices_on_connect(libusb_device_notify **dev_notify)
                     const struct libusb_interface_descriptor *intf_desc;
                     intf_desc = &intf->altsetting[k];
                     if (intf_desc->bInterfaceClass == LIBUSB_CLASS_HID) {
-                        libusb_device_notify *d = root;
+                        libusb_device_notify *d = NULL;
                         isConnect = HID_ADD_MATCH;
-                        while(d){
-                            if(d->info->vendor_id == dev_vid && d->info->product_id == dev_pid) {
-                                isConnect = HID_REMOVE_MATCH;
-                                d->fconnect = HID_NO_MATCH;
-                                break;    
-                            }
-                            d=d->next;
+                        int pos = hid_find_hash(dev_vid,dev_pid,&d);
+                        if(pos!=-1){
+                            isConnect = HID_REMOVE_MATCH;
+                            d->fconnect = HID_NO_MATCH;
                         }
                         num_hid_devs++;
                         if(isConnect == HID_ADD_MATCH) { 
                             //new device
+                            
+                            root = dev_state->dev_notify;
+                            
                             interface_num = intf_desc->bInterfaceNumber;
-                            char *dev_path = make_path(dev, interface_num);
                             libusb_device_notify *tmp = calloc(1, sizeof(libusb_device_notify));
                             tmp->next = NULL;
                             if(root) {
@@ -1685,15 +1820,15 @@ int check_devices_on_connect(libusb_device_notify **dev_notify)
                             }
                             root = tmp;                
                             /* Fill out the record */
-                            strcpy(tmp->path, dev_path);
-                            free(dev_path);
                             tmp->interface_num = interface_num;
                             tmp->dev = libusb_ref_device(dev);
-                            tmp->handle = NULL;
                             tmp->fconnect = HID_ADD_MATCH; 
                             tmp->info = hid_device_info_create(tmp);
                             (*dev_notify) = tmp;
                             isQuit = 1;
+
+                            dev_state->dev_notify = root;
+
                         }
                     }
                 }
@@ -1702,22 +1837,26 @@ int check_devices_on_connect(libusb_device_notify **dev_notify)
         }
     }
     libusb_free_device_list(devs, 1);
-    dev_state->dev_notify = root;
     if(isConnect == HID_ADD_MATCH){ 
-        state->num_devs++;
+        dev_state->num_devs++;
     }
     else
     {
-        if(num_hid_devs == state->num_devs){
+        if(num_hid_devs == dev_state->num_devs){
             isConnect = HID_NO_MATCH;
         }
+        else if(num_hid_devs == 0 && 0 < dev_state->num_devs) {
+            isConnect = HID_REMOVE_MATCH;
+        }
     }
+    pthread_mutex_unlock(&dev_state->notify_lock);
     return isConnect;
 }
 
 int check_devices_on_disconnect(libusb_device_notify **dev)
 {
     int res = -1;
+    pthread_mutex_lock(&dev_state->notify_lock);
     if(dev && dev_state)
     {
         libusb_device_notify *root = dev_state->dev_notify;
@@ -1733,6 +1872,7 @@ int check_devices_on_disconnect(libusb_device_notify **dev)
             res = 0;
         }
     }
+    pthread_mutex_unlock(&dev_state->notify_lock);
     return res;
 }
 
@@ -1769,6 +1909,7 @@ static void *hid_monitor_thread(void *param)
         if(res >= 0)
         {
             // arrival new device
+            hid_hash_add(dev);
             hid_device_matching_callback_result(dev);    
         }
         else
@@ -1779,6 +1920,7 @@ static void *hid_monitor_thread(void *param)
                 if(res >= 0 )
                 {
                     hid_device_removal_callback_result(dev);
+                    hid_hash_remove(dev);
                     hid_remove_notify(dev);
                 }
             }
@@ -1805,11 +1947,18 @@ static int hid_monitor_startup()
     
     dev_state = calloc(1, sizeof(libusb_state));
     dev_state->shutdown_thread = 0;
-    dev_state->dev_notify = NULL;
-    dev_state->dev_notify = hid_enum_notify_devices();
     
     pthread_mutex_init(&dev_state->thread_lock, NULL);
     pthread_mutex_init(&dev_state->notify_lock, NULL);
+    
+    pthread_mutex_lock(&dev_state->notify_lock);
+    
+    dev_state->dev_notify = hid_enum_notify_devices();
+    hid_init_hash();
+    
+    pthread_mutex_unlock(&dev_state->notify_lock);
+    
+    
     pthread_create(&dev_state->thread, NULL, hid_monitor_thread, dev_state);
     
     return 0;
@@ -1822,18 +1971,19 @@ static int hid_monitor_shutdown(void)
     {
         dev_state->shutdown_thread = 1;
         pthread_join(dev_state->thread,NULL);
+        pthread_detach(dev_state->thread);
         
-        pthread_mutex_unlock(&dev_state->thread_lock);
         pthread_mutex_destroy(&dev_state->thread_lock);
         
         hid_free_notify_devices();
         
-        pthread_mutex_unlock(&dev_state->notify_lock);
         pthread_mutex_destroy(&dev_state->notify_lock);
         
         free(dev_state);
         
         dev_state = NULL;
+        
+        hid_deinit_hash();
     }    
     return ret;
 }
@@ -1858,13 +2008,17 @@ static int hid_connect_registered(hid_device_callback callBack, hid_device_conte
 
 int hid_init_connect()
 {
+    pthread_mutex_lock(&hid_lib_init_mutex);
     hid_monitor_startup();
+    pthread_mutex_unlock(&hid_lib_init_mutex);
     return TRUE;
 }
 
 void hid_deinit_connect()
 {
+    pthread_mutex_lock(&hid_lib_init_mutex);
     hid_monitor_shutdown();
+    pthread_mutex_unlock(&hid_lib_init_mutex);
 }
 
 static int hid_register_add_callback(hid_device_callback callBack, hid_device_context context)
@@ -1983,9 +2137,25 @@ void HID_API_EXPORT HID_API_CALL hid_remove_all_notification_callbacks(void)
     connect_device_info = NULL;
     connect_callback_list = NULL;
     pthread_mutex_unlock(&connect_callback_mutex);
-    hid_deinit_connect();
 }
 
+#else
+int hid_init_connect(){
+    return 0;
+}
+int hid_deinit_connect(){
+    return 0;
+}
+int  HID_API_EXPORT HID_API_CALL hid_add_notification_callback(hid_device_callback callBack, void *context)
+{
+    return 0;
+}
+void HID_API_EXPORT HID_API_CALL hid_remove_notification_callback(hid_device_callback  callBack, void *context)
+{
+}
+void HID_API_EXPORT HID_API_CALL hid_remove_all_notification_callbacks(void)    
+{
+}
 #endif
 
 void HID_API_EXPORT hid_close(hid_device *dev)

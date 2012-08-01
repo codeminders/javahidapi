@@ -158,6 +158,7 @@ public class HIDDevice
 
     /**
      * Get a string from a HID device, based on its string index.
+     * @param string_index The index of the string to get.
      * @return the string buffer to put the data into
      * @throws IOException
      */
