@@ -44,6 +44,12 @@ static void list_devices()
 {
     struct hid_device_info *devs, *cur_dev;
     devs = hid_enumerate(0x0, 0x0);
+    if(!devs)
+    {
+        printf("No devices found\n");
+        return;
+    }
+
     cur_dev = devs;    
     while (cur_dev) {
     printf("Device Found\n  type: %04hx %04hx\n  path: %s\n  serial_number: %ls", 
@@ -400,7 +406,10 @@ int main(int argc, char* argv[])
         goto quit;
     
     if(!init_hid_mgr())
+    {
+        printf("Error initializing HID manager\n");
         goto quit;
+    }
     
     list_devices();
     
