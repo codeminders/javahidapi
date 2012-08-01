@@ -24,7 +24,7 @@
 #if defined(__APPLE__)
  #define MAC_OS_X
 #endif
-
+    
 #ifdef MAC_OS_X
 #import <IOKit/usb/IOUSBLib.h>
 #define RUN_LOOP_THEAD 
@@ -44,12 +44,6 @@ static void list_devices()
 {
     struct hid_device_info *devs, *cur_dev;
     devs = hid_enumerate(0x0, 0x0);
-    if(!devs)
-    {
-        printf("No devices found\n");
-        return;
-    }
-
     cur_dev = devs;    
     while (cur_dev) {
     printf("Device Found\n  type: %04hx %04hx\n  path: %s\n  serial_number: %ls", 
@@ -61,6 +55,9 @@ static void list_devices()
     printf("  Interface:    %d\n",  cur_dev->interface_number);
     printf("\n");
     cur_dev = cur_dev->next;
+    }
+    if(devs) { 
+        printf("------------------------------------\n");
     }
     hid_free_enumeration(devs);
 }
@@ -135,7 +132,7 @@ static int hid_runloop_startup()
 {  
     if(hid_mgr_init)
         return 0;
-  	hid_mgr_init = 1;
+      hid_mgr_init = 1;
     
     if(squit)
     { 
@@ -144,14 +141,14 @@ static int hid_runloop_startup()
         squit = 0;
     }
     else 
-  	{
+      {
         pthread_attr_t attr;
         pthread_attr_init( &attr );
         pthread_attr_setdetachstate( &attr, PTHREAD_CREATE_DETACHED );
         pthread_cond_init(&condition, NULL);
         pthread_create(&runloop_thread, &attr, hid_runloop_thread, NULL);
     }
-	hid_mgr_init = 1;
+    hid_mgr_init = 1;
     return 0;
 }
 
@@ -168,7 +165,7 @@ static int hid_init_1()
 #ifdef RUN_LOOP_THEAD
     return hid_runloop_startup();
 #else
-	return hid_init();
+    return hid_init();
 #endif
 }
 
@@ -176,12 +173,12 @@ static int hid_exit_1()
 {
 #ifdef RUN_LOOP_THEAD
     if(hid_mgr_init)
-	{
+    {
         hid_runloop_exit();
-		hid_mgr_init = 0;
+        hid_mgr_init = 0;
     }
 #else
-	hid_exit();
+    hid_exit();
 #endif
     return 0;
 }
@@ -208,22 +205,22 @@ static int init_hid_mgr()
 static void hid_test_multiplies()
 {
     const int numTimes = 1;
-	for(int i = 0; i < numTimes; i++)
-	{
+    for(int i = 0; i < numTimes; i++)
+    {
       hid_init_1();
-	
-#ifdef RUN_LOOP_THEAD	
-	  pthread_mutex_lock(&mutex);
-	  while(cond == FALSE){
-		  pthread_cond_wait(&condition, &mutex);
-	  }
-	  pthread_mutex_unlock(&mutex);
+    
+#ifdef RUN_LOOP_THEAD    
+      pthread_mutex_lock(&mutex);
+      while(cond == FALSE){
+          pthread_cond_wait(&condition, &mutex);
+      }
+      pthread_mutex_unlock(&mutex);
 #endif
-	  hid_add_notification_callback(hid_device_change, NULL);
-	  hid_remove_notification_callback(hid_device_change,NULL);
-	
-	  hid_exit_1();
-	}
+      hid_add_notification_callback(hid_device_change, NULL);
+      hid_remove_notification_callback(hid_device_change,NULL);
+    
+      hid_exit_1();
+    }
 }
 int hid_check_add_remove_notify()
 {
@@ -231,7 +228,7 @@ int hid_check_add_remove_notify()
   printf("Press key 'q' to quit.\n");
   hid_init_1();
 #ifdef RUN_LOOP_THEAD
-	
+    
     pthread_mutex_lock(&mutex);
     
     while(cond == FALSE){
@@ -244,7 +241,7 @@ int hid_check_add_remove_notify()
     
     list_devices();
     
-    hid_device *handle = 0;//hid_open(0x4f3, 0x216, NULL);
+    hid_device *handle = hid_open(0x4f3, 0x216, NULL);
     if(handle){
         printf("Open device\n");    
         hid_close(handle);
@@ -274,13 +271,14 @@ int hid_check_add_remove_notify()
      {
         quit = 1;
      }
+     list_devices(); 
   } 
 #endif
   hid_remove_notification_callback(hid_device_change,NULL);
   hid_remove_all_notification_callbacks();
-	
+    
   hid_exit_1();
-	
+    
   return 0;
 }
     
@@ -295,6 +293,8 @@ int hid_multi_devices_open()
     hid_device *handle2;
     
     printf("Device = %04hx %04hx\n", vid, pid);
+    
+    hid_init_1();
     
     handle1 = hid_open(vid, pid, NULL);
     if (!handle1) {
@@ -361,10 +361,11 @@ static void usage()
 int main(int argc, char* argv[])
 {
     int res;
-    unsigned char buf[256];
+    unsigned char buf[MAX_STR];
     wchar_t wstr[MAX_STR];
     hid_device *handle;
     int i;
+    int nCount = 100;
     int itest = -1;
 
 #ifdef _WIN32
@@ -394,7 +395,7 @@ int main(int argc, char* argv[])
     }
     switch(itest){
         case 0:
-			hid_test_multiplies();
+            hid_test_multiplies();
             hid_check_add_remove_notify();
             break;
         case 1:
@@ -403,16 +404,23 @@ int main(int argc, char* argv[])
     }
     
     if( itest != 2 )
-        goto quit;
-    
-    if(!init_hid_mgr())
-    {
-        printf("Error initializing HID manager\n");
+    { 
         goto quit;
     }
+    hid_init_1();
     
-    list_devices();
+    if(!init_hid_mgr())
+        goto quit;
     
+    for(i = 0; i < nCount; i++) { 
+#ifdef _WIN32
+        ::Sleep(1);
+#else
+        usleep(500*1000);
+#endif 
+        printf("count times = %d\n",i);
+        list_devices();
+    }
     // Set up the command buffer.
     memset(buf,0x00,sizeof(buf));
     buf[0] = 0x01;
@@ -420,13 +428,12 @@ int main(int argc, char* argv[])
     
     // Open the device using the VID, PID,
     // and optionally the Serial number.
-    handle = hid_open(0x5ac, 0x8242, NULL);
-   // handle = hid_open(0x4f3, 0x216, NULL);
+    handle = hid_open(0x4f3, 0x216, NULL);
     if (!handle) {
         printf("unable to open device\n");
          goto quit;
     }
-
+        
     // Read the Manufacturer String
     wstr[0] = 0x0000;
     res = hid_get_manufacturer_string(handle, wstr, MAX_STR);
@@ -457,7 +464,15 @@ int main(int argc, char* argv[])
     printf("Indexed String 1: %ls\n", wstr);
 
     // Set the hid_read() function to be non-blocking.
-    hid_set_nonblocking(handle, 1);
+    hid_set_nonblocking(handle, 0);
+    
+    //Try write bytes
+    buf[0] = 0x01;
+    buf[1] = 0x80;
+    
+    res = hid_write(handle, buf, MAX_STR);
+    buf[1] = 0x81;
+    res = hid_write(handle, buf, MAX_STR);
     
     // Try to read from the device. There shoud be no
     // data here, but execution should not block.
@@ -494,9 +509,9 @@ int main(int argc, char* argv[])
     memset(buf,0,sizeof(buf));
 
     // Toggle LED (cmd 0x80). The first byte is the report number (0x1).
-    buf[0] = 0x00;
+    buf[0] = 0x1;
     buf[1] = 0x80;
-	res = hid_write(handle, buf, 17);
+    res = hid_write(handle, buf, 17);
     if (res < 0) {
         printf("Unable to write()\n");
         printf("Error: %ls\n", hid_error(handle));
@@ -525,7 +540,6 @@ int main(int argc, char* argv[])
         usleep(500*1000);
         #endif
     }
-
     printf("Data read:\n   ");
     // Print out the returned buffer.
     for (i = 0; i < res; i++)
