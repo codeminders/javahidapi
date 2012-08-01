@@ -186,6 +186,7 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_sendFeatureReport
     jsize bufsize = env->GetArrayLength(data);
     jbyte *buf = env->GetByteArrayElements(data, NULL);
     int res = hid_send_feature_report(peer, (const unsigned char*) buf, bufsize);
+    env->ReleaseByteArrayElements(data, buf, JNI_ABORT);
     if(res==-1)
     {
         throwIOException(env, peer);
@@ -207,9 +208,8 @@ JNIEXPORT jint JNICALL Java_com_codeminders_hidapi_HIDDevice_getFeatureReport
 
     jsize bufsize = env->GetArrayLength(data);
     jbyte *buf = env->GetByteArrayElements(data, NULL);
-    int res = hid_read(peer, (unsigned char*) buf, bufsize);
+    int res = hid_get_feature_report(peer, (unsigned char*) buf, bufsize);
     env->ReleaseByteArrayElements(data, buf, res==-1?JNI_ABORT:0);
-
     if(res==-1)
     {
         throwIOException(env, peer);

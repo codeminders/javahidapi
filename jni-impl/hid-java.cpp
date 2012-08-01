@@ -64,12 +64,27 @@ char* convertToUTF8(JNIEnv *env, const wchar_t *str)
     size_t ulen = len*sizeof(wchar_t);
     char *uval = (char *)str;
     
-    size_t u8l;
-    char *u8 = (char *) malloc(len*6+1);
+    size_t u8l = len*6+3; //BOM+chars
+    char *u8 = (char *) malloc(u8l+1);
     char *u8p = u8;
-    iconv(cd, &uval, &ulen, &u8p, &u8l);
+    int nconv = iconv(cd, &uval, &ulen, &u8p, &u8l);
+    if(nconv == (size_t)-1)
+    {
+        iconv_close(cd);
+        free(u8);
+        jclass exceptionClass = env->FindClass("java/lang/Error");
+        if (exceptionClass == NULL) 
+        {
+            /* Unable to find the exception class, give up. */
+            assert(0);
+            return NULL;
+        }
+        env->ThrowNew(exceptionClass, "iconv failed"); 
+        return NULL;
+    }
     *u8p='\0';
 
+    iconv_close(cd);
     return u8;
 #endif
 }

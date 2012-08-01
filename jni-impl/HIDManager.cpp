@@ -17,7 +17,7 @@
 #define HID_RUN_LOOP
 #endif
 
-#define DEBUG 0
+#define JNI_DEBUG 0
 
 
 static JNIEnv *m_env = NULL;
@@ -67,7 +67,7 @@ static void *hid_runloop_thread(void *param)
     
     int res = m_vm->AttachCurrentThread( (void**) &m_env, NULL );
     if(res < 0){
-    #if DEBUG        
+    #if JNI_DEBUG        
         printf("Attached failed\n");
     #endif
         return NULL;
@@ -93,7 +93,7 @@ static void *hid_runloop_thread(void *param)
         {
             break;
         }
-#if DEBUG        
+#if JNI_DEBUG        
         printf("HID run loop thread\n");
 #endif
         usleep(SLEEP_TIME);
@@ -253,7 +253,7 @@ void hid_device_jni_callback(const struct hid_device_info *dev,  hid_device_even
     int res = m_vm->AttachCurrentThread( (void**) &m_env, NULL );
     
     if(res < 0){
-#if DEBUG        
+#if JNI_DEBUG        
        printf("Attached failed\n");
 #endif
        return;
@@ -296,7 +296,7 @@ void hid_device_jni_callback(const struct hid_device_info *dev,  hid_device_even
             m_env->CallVoidMethod(clsObj, mid, idevInfo );
         }
         else{
-#if DEBUG        
+#if JNI_DEBUG        
          printf("No such method\n");
 #endif
         }
@@ -310,7 +310,7 @@ void hid_device_jni_callback(const struct hid_device_info *dev,  hid_device_even
            m_env->CallVoidMethod(clsObj, mid, idevInfo );
         }
         else{
-#if DEBUG        
+#if JNI_DEBUG        
          printf("No such method\n");
 #endif
         }
@@ -360,7 +360,11 @@ Java_com_codeminders_hidapi_HIDManager_listDevices(JNIEnv *env, jclass cls)
     devs = hid_enumerate(0x0, 0x0);
     if(devs == NULL)
     {
-       throwIOException(env, NULL);
+     /* no exception thrown */
+     //throwIOException(env, NULL);
+#if JNI_DEBUG        
+      printf("No attached devices\n");
+#endif
        return NULL;
     }
     
@@ -407,12 +411,15 @@ JNIEXPORT void JNICALL Java_com_codeminders_hidapi_HIDManager_init(JNIEnv *env, 
       m_env = env;
       m_env->GetJavaVM( &m_vm );
     }
+    
+    if(jni_ref_count == 0)
+    {
 #ifdef HID_RUN_LOOP    
     res = hid_init_loop(); 
 #else
     res = hid_init();
 #endif    
-     
+    } 
     if(res !=0 )
     {
        throwIOException(env, NULL);
@@ -421,7 +428,7 @@ JNIEXPORT void JNICALL Java_com_codeminders_hidapi_HIDManager_init(JNIEnv *env, 
     
     jobjRef = env->NewGlobalRef(obj);
     setPeer(env, obj, jobjRef);
-#if DEBUG        
+#if JNI_DEBUG        
     printf("JNI - init peer(objRef) =  %p \n", jobjRef);
 #endif
         
@@ -435,16 +442,16 @@ JNIEXPORT void JNICALL Java_com_codeminders_hidapi_HIDManager_release(JNIEnv *en
 {
     int res = 0;
     jobject jobjRef = (jobject)getPeer(env, obj);
-#if DEBUG        
+#if JNI_DEBUG        
     printf("JNI - release peer(jobjRef) =  %p \n", jobjRef);
 #endif
     if(jobjRef){
         hid_remove_notification_callback(hid_device_jni_callback, jobjRef);
-        m_env->DeleteGlobalRef(jobjRef);
+        env->DeleteGlobalRef(jobjRef);
         setPeer(env,obj,0);
         jni_ref_count--;
     }
-#if DEBUG        
+#if JNI_DEBUG        
     printf("jni_ref_count = %d\n", jni_ref_count);
 #endif
     if(jni_ref_count>0){ 
@@ -459,4 +466,7 @@ JNIEXPORT void JNICALL Java_com_codeminders_hidapi_HIDManager_release(JNIEnv *en
     {
        throwIOException(env, NULL);
     }
+#if JNI_DEBUG        
+    printf("JNI Release library!\n");
+#endif
 }

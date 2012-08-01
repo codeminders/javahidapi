@@ -53,7 +53,7 @@
 #define  FAILURE                   -1    
 #define  MAX_PATH                   256
 #define  SLEEP_TIME                 250 * 1000
-//#define  DEBUG
+//#define  DEBUG_PRINTF
 
 #if HID_DEVICE_SUPPORT_CONNECT
 
@@ -79,7 +79,6 @@ struct _udev_state {
     udev_notify *udev_notify;
     struct udev_monitor *udev_monitor;
     int shutdown_thread;
-    int start_add;
     pthread_mutex_t notify_lock;
     pthread_mutex_t lock;
     pthread_t thread;
@@ -100,12 +99,8 @@ static hid_device_callback_connect *connect_callback_list = NULL;
 static struct hid_device_info *connect_device_info = NULL;
 static udev_state *dev_state  = NULL;
 
-/* Static list of all the devices open. This way when a device gets
- disconnected, its hid_device structure can be marked as disconnected
- from hid_device_removal_callback(). */
-static hid_device *device_list = NULL;
-static pthread_mutex_t device_list_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t connect_callback_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t hid_lib_init_mutex = PTHREAD_MUTEX_INITIALIZER;    
 
 
 /* Declare of inner  functions */
@@ -113,6 +108,12 @@ int hid_init_connect();
 void hid_deinit_connect(void);
 
 #endif //HID_DEVICE_SUPPORT_CONNECT
+
+/* Static list of all the devices open. This way when a device has been opened
+ the ref_count of its hid_device structure increases on 1,
+ when a device has been closed the ref_count decreases on 1. */
+static hid_device *device_list = NULL;
+static pthread_mutex_t device_list_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* Definitions from linux/hidraw.h. Since these are new, some distros
  may not have header files which contain them. */
@@ -975,9 +976,10 @@ static void hid_remove_notify(udev_notify *dev)
             c = c->next;
         }
     }
+    hid_dev_notify_free(dev);
+    
     pthread_mutex_unlock(&dev_state->notify_lock);
     
-    hid_dev_notify_free(dev);
 }
 
 static void hid_free_notify_devices()
@@ -1069,7 +1071,6 @@ static udev_notify *hid_enum_notify_devices()
     udev_notify *root = NULL;
     udev_notify *curr = NULL;
     
-    setlocale(LC_ALL,"");
     
     /* Create the udev object */
     udev = udev_new();
@@ -1145,6 +1146,9 @@ static void *hid_monitor_thread(void *param)
     udev_state *devState = (udev_state*)param;
     struct udev_monitor *monitor = devState->udev_monitor;
     int fd = udev_monitor_get_fd(monitor);
+    
+    pthread_mutex_lock(&devState->lock);
+
     while(!devState->shutdown_thread)
     {
         struct udev_device* dev;
@@ -1152,8 +1156,6 @@ static void *hid_monitor_thread(void *param)
         fd_set fds;
         int ret;
      
-        pthread_mutex_lock(&devState->lock);
-        
         FD_ZERO(&fds);
         FD_SET(fd, &fds);
         tv.tv_sec = 0;
@@ -1190,12 +1192,12 @@ static void *hid_monitor_thread(void *param)
                 //printf("No Device from receive_device(). An error occured.\n");
             }                    
         }
-#ifdef DEBUG
-        printf("HID thread\n");
+#ifdef DEBUG_PRINTF
+       // printf("HID thread\n");
 #endif    
         usleep(SLEEP_TIME);
-        pthread_mutex_unlock(&devState->lock);
     }
+    pthread_mutex_unlock(&devState->lock);
     return NULL;
 }
     
@@ -1223,7 +1225,6 @@ static int hid_monitor_startup()
         dev_state->udev_monitor = udev_monitor;
         dev_state->udev_notify = hid_enum_notify_devices();    
         dev_state->shutdown_thread = 0;
-        dev_state->start_add = 0;
         
         udev_monitor_filter_add_match_subsystem_devtype(dev_state->udev_monitor, "hidraw", NULL);
         udev_monitor_enable_receiving(dev_state->udev_monitor);
@@ -1247,7 +1248,6 @@ static int hid_monitor_shutdown(void)
     if (dev_state) {
         dev_state->shutdown_thread = 1;
         pthread_join(dev_state->thread,NULL);
-        pthread_mutex_lock(&dev_state->lock);
         udev_monitor = DRV_STATE_UDEV_MONITOR(dev_state);
         if (udev_monitor != NULL) {
             udev = udev_monitor_get_udev(udev_monitor);
@@ -1259,7 +1259,6 @@ static int hid_monitor_shutdown(void)
         
         hid_free_notify_devices();
         
-        pthread_mutex_unlock(&dev_state->lock);
         pthread_mutex_destroy(&dev_state->lock);
         pthread_mutex_destroy(&dev_state->notify_lock);
         
@@ -1289,13 +1288,17 @@ static int hid_connect_registered(hid_device_callback callBack, void *context)
 
 int hid_init_connect()
 {
+   pthread_mutex_lock(&hid_lib_init_mutex);
    hid_monitor_startup();
+   pthread_mutex_unlock(&hid_lib_init_mutex);
    return TRUE;
 }
 
 void hid_deinit_connect()
 {
+   pthread_mutex_lock(&hid_lib_init_mutex);
    hid_monitor_shutdown();
+   pthread_mutex_unlock(&hid_lib_init_mutex);
 }
 
 static int hid_register_add_callback(hid_device_callback callBack, hid_device_context context)
@@ -1305,10 +1308,6 @@ static int hid_register_add_callback(hid_device_callback callBack, hid_device_co
     
     if(NULL == callBack)
         return result;
-    
-    if(!hid_init_connect())
-        return -1;
-    
     
     pthread_mutex_lock(&connect_callback_mutex);
     
@@ -1415,6 +1414,23 @@ void HID_API_EXPORT HID_API_CALL hid_remove_all_notification_callbacks(void)
     hid_deinit_connect();
 }
 
+#else
+int hid_init_connect(){
+    return 0;
+}
+int hid_deinit_connect(){
+    return 0;
+}
+int  HID_API_EXPORT HID_API_CALL hid_add_notification_callback(hid_device_callback callBack, void *context)
+{
+    return 0;
+}
+void HID_API_EXPORT HID_API_CALL hid_remove_notification_callback(hid_device_callback  callBack, void *context)
+{
+}
+void HID_API_EXPORT HID_API_CALL hid_remove_all_notification_callbacks(void)    
+{
+}
 #endif
 
 //#pragma mark device connection notification

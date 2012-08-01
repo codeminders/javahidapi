@@ -1,4 +1,4 @@
-/*******************************************************
+/******************************************************
  HIDAPI - Multi-Platform library for
  communication with HID devices.
 
@@ -247,7 +247,7 @@ extern "C" {
             single report), followed by the report data (16 bytes). In
             this example, the length passed in would be 17.
      
-            hid_write_timeout() will send the data on the first OUT endpoint, if
+            hid_write() will send the data on the first OUT endpoint, if
             one exists. If it does not, it will send the data through
             the Control Endpoint (Endpoint 0).
      
