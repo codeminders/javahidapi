@@ -78,17 +78,7 @@ public class HIDDevice
      * @throws IOException if write error occured
      */
     public native int write(byte[] data) throws IOException;
-    
-    /**
-     * Write an Output Report to a HID device.
-     *
-     * @param data the data to send, including the report number as the first byte
-     * @param milliseconds parameter controls how many milliseconds to wait for the data to be written.
-     * @return the actual number of bytes written
-     * @throws IOException if write error occured
-     */
-    public native int  writeTimeout(byte[] data, int milliseconds) throws IOException;
-    
+        
     /**
      * Read an Input Report to a HID device.
      *

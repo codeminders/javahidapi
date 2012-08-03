@@ -1,4 +1,4 @@
-/******************************************************
+/*******************************************************
  HIDAPI - Multi-Platform library for
  communication with HID devices.
 
@@ -78,41 +78,6 @@ extern "C" {
             struct hid_device_info *next;
         };
 
-    /* device event identifiers */
-    typedef enum deviceEvent
-    {
-        device_arrival,   // a device  has been physically inserted and is now available.
-        device_removal    // a device  has been physically removed.
-    } hid_device_event;
-    
-    /*! 
-     @typedef hid_device_callback
-     @discussion Type and arguments of callout C function that is used when a device routine is called.
-     @param context void * pointer to user data.
-     @param eventType The type of event that has occurred.
-     @param deviceInfo  pointer to hid_device_info containing information about the HID device.
-     */
-    
-    /* Connect/disconnect device callback notifications */
-    typedef void (*hid_device_callback)(const struct hid_device_info *deviceInfo, hid_device_event  eventType, void *context);
-    
-    /*! 
-     @function hid_add_notification_callback  
-     @param callback Pointer to a callback method of type hid_device_callback.
-     @param context Pointer to user data to be passed to the callback.
-    */
-    int  HID_API_EXPORT HID_API_CALL hid_add_notification_callback(hid_device_callback callBack, void *context);
-    
-    /*! 
-     @function hid_remove_notification_callback  
-     @param callback Pointer to a callback method of type hid_device_callback.
-    */
-    void HID_API_EXPORT HID_API_CALL hid_remove_notification_callback(hid_device_callback  callBack, void *context);
-    
-    /*! 
-     @function hid_remove_all_notification_callbacks  
-    */
-    void HID_API_EXPORT HID_API_CALL hid_remove_all_notification_callbacks(void);
 
         /** @brief Initialize the HIDAPI library.
 
@@ -190,7 +155,7 @@ extern "C" {
                 This function returns a pointer to a #hid_device object on
                 success or NULL on failure.
         */
-        HID_API_EXPORT hid_device * HID_API_CALL hid_open(unsigned short vendor_id, unsigned short product_id, wchar_t *serial_number);
+		HID_API_EXPORT hid_device * HID_API_CALL hid_open(unsigned short vendor_id, unsigned short product_id, const wchar_t *serial_number);
 
         /** @brief Open a HID device by its path name.
 
@@ -235,34 +200,6 @@ extern "C" {
         */
         int  HID_API_EXPORT HID_API_CALL hid_write(hid_device *device, const unsigned char *data, size_t length);
     
-        /** @brief Write an Output report to a HID device with timeout.
-     
-            The first byte of @p data[] must contain the Report ID. For
-            devices which only support a single report, this must be set
-            to 0x0. The remaining bytes contain the report data. Since
-            the Report ID is mandatory, calls to hid_write() will always
-            contain one more byte than the report contains. For example,
-            if a hid report is 16 bytes long, 17 bytes must be passed to
-            hid_write(), the Report ID (or 0x0, for devices with a
-            single report), followed by the report data (16 bytes). In
-            this example, the length passed in would be 17.
-     
-            hid_write() will send the data on the first OUT endpoint, if
-            one exists. If it does not, it will send the data through
-            the Control Endpoint (Endpoint 0).
-     
-            @ingroup API
-            @param device A device handle returned from hid_open().
-            @param data The data to send, including the report number as
-            the first byte.
-            @param length The length in bytes of the data to send.
-            @param milliseconds parameter controls how many milliseconds to wait for the data to be written.
-            @returns
-            This function returns the actual number of bytes written and
-            -1 on error.
-        */
-        int  HID_API_EXPORT HID_API_CALL hid_write_timeout(hid_device *device, const unsigned char *data, size_t length, int milliseconds);
-
         /** @brief Read an Input report from a HID device with timeout.
 
             Input reports are returned

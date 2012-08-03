@@ -241,101 +241,6 @@ static jobject createHIDDeviceInfo(JNIEnv *env, jclass cls, struct hid_device_in
     return result;
 }
 
-// This is C callback call from C code and then call java methods
-void hid_device_jni_callback(const struct hid_device_info *dev,  hid_device_event typeEvent, void *context)
-{
-    if( m_env == NULL )
-        return;
-    
-    if( context == NULL)
-        return;
-    
-    int res = m_vm->AttachCurrentThread( (void**) &m_env, NULL );
-    
-    if(res < 0){
-#if JNI_DEBUG        
-       printf("Attached failed\n");
-#endif
-       return;
-    }
-    
-    if(!init_hid_mgr())
-    {
-       m_vm->DetachCurrentThread();
-       return;
-    }
-
-    jobject clsObj = (jobject)context;
-    jclass cls = NULL;
-    
-    if(clsObj){
-        cls = m_env->GetObjectClass(clsObj);
-    }
-     
-    if(cls == NULL){
-       cls = m_env->FindClass( HID_MANAGER_CLASS );
-    }
-    
-    if(cls == NULL)
-    {
-       m_vm->DetachCurrentThread();
-       return;
-    }
-     
-    jclass infoCls = m_env->FindClass(DEVINFO_CLASS);
-    if (infoCls == NULL) {
-        m_vm->DetachCurrentThread();
-        return;
-    } 
-    if(typeEvent == device_arrival)
-    {
-        struct hid_device_info *devInfo = (struct hid_device_info *)dev;
-        jmethodID mid = m_env->GetMethodID(cls, "deviceAdded", "(Lcom/codeminders/hidapi/HIDDeviceInfo;)V");
-        if(mid){
-           jobject idevInfo = createHIDDeviceInfo(m_env, infoCls, devInfo);
-            m_env->CallVoidMethod(clsObj, mid, idevInfo );
-        }
-        else{
-#if JNI_DEBUG        
-         printf("No such method\n");
-#endif
-        }
-    }
-    else if(typeEvent == device_removal)
-    {
-        struct hid_device_info *devInfo = (struct hid_device_info *)dev;
-        jmethodID mid = m_env->GetMethodID(cls, "deviceRemoved", "(Lcom/codeminders/hidapi/HIDDeviceInfo;)V");
-        if(mid){
-           jobject idevInfo = createHIDDeviceInfo(m_env, infoCls, devInfo);
-           m_env->CallVoidMethod(clsObj, mid, idevInfo );
-        }
-        else{
-#if JNI_DEBUG        
-         printf("No such method\n");
-#endif
-        }
-    }
-}
-
-static int registerHIDDeviceCallback(JNIEnv *env, jobject obj)
-{
-    int res = 0;
-#ifdef HID_RUN_LOOP
-    if(!init_hid_mgr())
-    {
-        throwIOException(env, NULL);
-        return res;
-    }
-    if(hid_mgr_init){
-        res = hid_add_notification_callback(hid_device_jni_callback, (void*)obj);
-    }
-#else
-    res = hid_add_notification_callback(hid_device_jni_callback, (void*)obj);
-#endif
-    return res;
-}
-
-
 JNIEXPORT jobjectArray JNICALL
 Java_com_codeminders_hidapi_HIDManager_listDevices(JNIEnv *env, jclass cls)
 {
@@ -432,9 +337,6 @@ JNIEXPORT void JNICALL Java_com_codeminders_hidapi_HIDManager_init(JNIEnv *env, 
     printf("JNI - init peer(objRef) =  %p \n", jobjRef);
 #endif
         
-    if(jobjRef){
-       registerHIDDeviceCallback(env, jobjRef);
-    }
     jni_ref_count++;
 }
     
@@ -446,7 +348,6 @@ JNIEXPORT void JNICALL Java_com_codeminders_hidapi_HIDManager_release(JNIEnv *en
     printf("JNI - release peer(jobjRef) =  %p \n", jobjRef);
 #endif
     if(jobjRef){
-        hid_remove_notification_callback(hid_device_jni_callback, jobjRef);
         env->DeleteGlobalRef(jobjRef);
         setPeer(env,obj,0);
         jni_ref_count--;
