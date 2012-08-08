@@ -18,7 +18,7 @@ JNISHAREDLIBVER=1.0
 
 CC=gcc
 CXX=g++
-COBJS=hid.o
+COBJS=hid-libusb.o
 CPPOBJS=../hidtest/hidtest.o
 OBJS=$(COBJS) $(CPPOBJS) $(JNIOBJS)
 CFLAGS+=-fPIC -I../hidapi -g -c `pkg-config libusb-1.0 --cflags` $(JNIINCLUDES)
