@@ -12,31 +12,19 @@ import java.io.IOException;
  * @author lord
  * 
  */
-public abstract class HIDManager
+public class HIDManager
 {
+	private static HIDManager instance = null;
+	  
     protected long peer;
 
-    /**
-     * Abstract callback method which will be called when HID device is connected.
-     *
-     * @param dev Reference to the hid device info object.
-     */
-    public abstract void deviceAdded( HIDDeviceInfo dev);
-    
-    /**
-     * Abstract callback method which will be called when new HID device is disconnected.
-     *
-     * @param dev Reference to the hid device info object.
-    */
-    public abstract void deviceRemoved( HIDDeviceInfo dev);
-     
     /**
      * Get list of all the HID devices attached to the system.
      *
      * @return list of devices
      * @throws IOException
      */
-    public static native HIDDeviceInfo[] listDevices() throws IOException;
+    public native HIDDeviceInfo[] listDevices() throws IOException;
 
     /**
      * Initializing the underlying HID layer.
@@ -60,7 +48,7 @@ public abstract class HIDManager
      *
      * @throws IOException
      */
-    protected HIDManager() throws IOException
+    private HIDManager() throws IOException
     {
         init();
     }
@@ -92,7 +80,7 @@ public abstract class HIDManager
      * @throws IOException in case of internal error
      * @throws HIDDeviceNotFoundException if devive was not found
      */
-    public static HIDDevice openByPath(String path) throws IOException, HIDDeviceNotFoundException
+    public HIDDevice openByPath(String path) throws IOException, HIDDeviceNotFoundException
     {
         HIDDeviceInfo[] devs = listDevices();
         for(HIDDeviceInfo d : devs)
@@ -114,7 +102,7 @@ public abstract class HIDManager
      * @throws IOException in case of internal error
      * @throws HIDDeviceNotFoundException if devive was not found
      */
-    public static HIDDevice openById(int vendor_id, int product_id, String serial_number) throws IOException, HIDDeviceNotFoundException
+    public HIDDevice openById(int vendor_id, int product_id, String serial_number) throws IOException, HIDDeviceNotFoundException
     {
         HIDDeviceInfo[] devs = listDevices();
         for(HIDDeviceInfo d : devs)
@@ -126,4 +114,14 @@ public abstract class HIDManager
         throw new HIDDeviceNotFoundException(); 
     }
 
+    public static HIDManager getInstance() throws IOException {
+        if(instance == null) {
+        	synchronized (HIDManager.class) {
+        		if (null == instance) {
+        			instance = new HIDManager();
+        		}
+			}
+        }
+        return instance;
+     }
 }

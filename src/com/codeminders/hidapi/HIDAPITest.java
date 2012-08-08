@@ -17,38 +17,17 @@ public class HIDAPITest
     }
 
     // "Afterglow" controller for PS3
-    static final int VENDOR_ID = 3695;
-    static final int PRODUCT_ID = 25346;
+    static final int VENDOR_ID = 1356;
+    static final int PRODUCT_ID = 616;
     private static final int BUFSIZE = 2048;
-    private static final int MAXOBJECTS = 100;
         
     /**
      * @param args input strings value.
      */
     public static void main(String[] args) throws IOException
     {
-        try
-        {
-            HIDManager test;
-            test  = new HIDManagerTest();
-            listDevices();
-           //readDevice();
-            System.err.println("waiting connect/disconnect...");
-            while(true)
-            {
-                try
-                {
-                    Thread.sleep(1000L);
-                } catch(InterruptedException e)
-                {
-                    e.printStackTrace();
-                }
-            }
-       }
-       catch(IOException e)
-       {
-          e.printStackTrace();
-       }
+        listDevices();
+        readDevice();
     }
     
     /**
@@ -57,10 +36,9 @@ public class HIDAPITest
     private static void readDevice()
     {
         HIDDevice dev;
-        HIDManager hid_mgr;
         try
         {
-            hid_mgr = new HIDManagerTest();
+        	HIDManager hid_mgr = HIDManager.getInstance();
             dev = hid_mgr.openById(VENDOR_ID, PRODUCT_ID, null);
             System.err.print("Manufacturer: " + dev.getManufacturerString() + "\n");
             System.err.print("Product: " + dev.getProductString() + "\n");
@@ -114,19 +92,17 @@ public class HIDAPITest
     {
         String property = System.getProperty("java.library.path");
         System.err.println(property);
-        HIDManager hid_mgr;
         try
         {
-            hid_mgr = new HIDManagerTest();
-            
-            HIDDeviceInfo[] devs = hid_mgr.listDevices();
+           
+            HIDManager manager = HIDManager.getInstance();
+            HIDDeviceInfo[] devs = manager.listDevices();
             System.err.println("Devices:\n\n");
             for(int i=0;i<devs.length;i++)
             {
                 System.err.println(""+i+".\t"+devs[i]);
                 System.err.println("---------------------------------------------\n");
             }
-            hid_mgr.release();
             System.gc();
         }
         catch(IOException e)
