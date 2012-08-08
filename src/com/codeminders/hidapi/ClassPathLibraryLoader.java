@@ -17,8 +17,8 @@ public class ClassPathLibraryLoader {
 	        "/native/win/hidapi-jni-32.dll"
 	};
 	  
-	public boolean loadNativeHIDLibrary()
-    {
+	public static boolean loadNativeHIDLibrary()
+        {
 		  boolean isHIDLibLoaded = false;
 		  
     	  for(String path : HID_LIB_NAMES)
