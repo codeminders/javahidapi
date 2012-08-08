@@ -8,41 +8,15 @@ import java.awt.*;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.IOException;
-
-class HIDManagerTest extends HIDManager
-{
-    /**
-     * Allocates a new <code>HIDManagerTest</code> object.
-     */
-    public HIDManagerTest() throws IOException
-    {
-        super();
-    }
-     
-    /**
-     * Callback method which will be called when new HID device is connected.
-     * @param dev Reference to the hid device info object.
-     */
-    public void deviceAdded( HIDDeviceInfo dev )
-    {
-        System.out.print("Added:" + "\n" + dev + "\n");
-    }
-   
-    /** 
-     * Callback method which will be called when new HID device is disconnected.
-     * @param dev Reference to the hid device info object.
-    */
-    public void deviceRemoved( HIDDeviceInfo dev)
-    {
-        System.out.print("Removal:" + "\n" + dev + "\n");
-    }
-}
+import java.io.OutputStream;;
 
 public class HidApplet extends JApplet
 {
-    HIDManagerTest hid_mgr;
+    /**
+	 * 
+	 */
+	private static final long serialVersionUID = 619732094067421147L;
+	HIDManager hid_mgr = null;
     @Override
     public void init()
     {
@@ -91,7 +65,7 @@ public class HidApplet extends JApplet
             setLayout(new BorderLayout());
             add(new JScrollPane(results), BorderLayout.CENTER);
             StringBuilder b = new StringBuilder();
-            hid_mgr = new HIDManagerTest();
+            hid_mgr = HIDManager.getInstance();
             for (HIDDeviceInfo info : hid_mgr.listDevices())
                  b.append(info).append('\n');
             results.setText(b.toString());

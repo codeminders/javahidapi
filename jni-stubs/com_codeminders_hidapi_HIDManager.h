@@ -7,13 +7,14 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+/* Inaccessible static: instance */
 /*
  * Class:     com_codeminders_hidapi_HIDManager
  * Method:    listDevices
  * Signature: ()[Lcom/codeminders/hidapi/HIDDeviceInfo;
  */
 JNIEXPORT jobjectArray JNICALL Java_com_codeminders_hidapi_HIDManager_listDevices
-  (JNIEnv *, jclass);
+  (JNIEnv *, jobject);
 
 /*
  * Class:     com_codeminders_hidapi_HIDManager
