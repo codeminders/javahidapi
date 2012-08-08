@@ -240,9 +240,8 @@ static jobject createHIDDeviceInfo(JNIEnv *env, jclass cls, struct hid_device_in
 
     return result;
 }
-
 JNIEXPORT jobjectArray JNICALL
-Java_com_codeminders_hidapi_HIDManager_listDevices(JNIEnv *env, jclass cls)
+Java_com_codeminders_hidapi_HIDManager_listDevices(JNIEnv *env, jobject obj)
 {
     struct hid_device_info *devs, *cur_dev;
     int res = 0;
@@ -300,9 +299,6 @@ Java_com_codeminders_hidapi_HIDManager_listDevices(JNIEnv *env, jclass cls)
         cur_dev = cur_dev->next;
     }
     hid_free_enumeration(devs);
-    
-    /* Free local references */
-    env->DeleteLocalRef(cls);
     
     return result;
 }
