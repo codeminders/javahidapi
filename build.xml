@@ -84,7 +84,9 @@
            basedir="bin"
            includes="com/codeminders/hidapi/**"
            excludes="**/HIDAPITest.class"
-           />
+           >
+           <fileset dir="${basedir}/lib"/>
+      </jar>
     </target>
     
     <target name="javadoc">
