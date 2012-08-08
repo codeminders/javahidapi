@@ -87,6 +87,9 @@
            >
            <fileset dir="${basedir}/lib"/>
       </jar>
+      <jar destfile="bin/hidapi-sourses.jar">
+          <fileset dir="src" includes="**/*.java"/>
+      </jar>
     </target>
     
     <target name="javadoc">
@@ -103,6 +106,9 @@
         </fileset>
 
       </javadoc>
+      <jar destfile="bin/hidapi-javadoc.jar">
+          <fileset dir="doc/api" />
+      </jar>
     </target>
 
 </project>
