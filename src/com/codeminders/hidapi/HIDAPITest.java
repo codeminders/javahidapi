@@ -17,8 +17,8 @@ public class HIDAPITest
     }
 
     // "Afterglow" controller for PS3
-    static final int VENDOR_ID = 1356;
-    static final int PRODUCT_ID = 616;
+    static final int VENDOR_ID = 3695;
+    static final int PRODUCT_ID = 25346;
     private static final int BUFSIZE = 2048;
         
     /**
