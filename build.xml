@@ -1,18 +1,44 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<project basedir="." default="build" name="hidapi">
-    <property environment="env"/>
-    <property name="ANT_HOME" value="../../../java/apache-ant-1.7.1"/>
+<project basedir="." default="build" name="hidapi" xmlns:artifact="antlib:org.apache.maven.artifact.ant">
+  
+    <path id="maven-ant-tasks.classpath" path="lib/maven-ant-tasks-2.1.3.jar" />
+    <typedef resource="org/apache/maven/artifact/ant/antlib.xml"
+           uri="antlib:org.apache.maven.artifact.ant"
+           classpathref="maven-ant-tasks.classpath" />
+  
     <property name="debuglevel" value="source,lines,vars"/>
     <property name="target" value="1.6"/>
     <property name="source" value="1.6"/>
+    
+    <property name="src" location="src" />
+    <property name="build" location="build" />
+    <property name="dist" location="dist" />
+    
+    <!-- define Maven coordinates -->
+    <property name="groupId" value="com.codeminders" />
+    <property name="artifactId" value="hidapi" />
+    <property name="version" value="1.1" />
+
+    <!-- define artifacts' name, which follows the convention of Maven -->
+    <property name="maven-jar" value="${dist}/lib/${artifactId}-${version}.jar" />
+    <property name="maven-javadoc-jar" value="${dist}/lib/${artifactId}-${version}-javadoc.jar" />
+    <property name="maven-sources-jar" value="${dist}/lib/${artifactId}-${version}-sources.jar" />
+
+    <!-- defined maven snapshots and staging repository id and url -->
+    <property name="maven-snapshots-repository-id" value="sonatype-nexus-snapshots" />
+    <property name="maven-snapshots-repository-url" value="https://oss.sonatype.org/content/repositories/snapshots" />
+    <property name="maven-staging-repository-id" value="sonatype-nexus-staging" />
+    <property name="maven-staging-repository-url" value="https://oss.sonatype.org/service/local/staging/deploy/maven2/" />
+
     <path id="hidapi.classpath">
         <pathelement location="bin"/>
         <pathelement location="${ANT_HOME}"/>
     </path>
 
     <target name="init">
-        <mkdir dir="bin"/>
-        <copy includeemptydirs="false" todir="bin">
+        <mkdir dir="${build}" />
+	<mkdir dir="${dist}/lib" />
+        <copy includeemptydirs="false" todir="${build}">
             <fileset dir="src">
                 <exclude name="**/*.launch"/>
                 <exclude name="**/*.java"/>
@@ -21,8 +47,8 @@
     </target>
 
     <target name="clean">
-        <delete dir="bin"/>
-        <delete dir="doc/api"/>
+        <delete dir="${build}"/>
+	<delete dir="${dist}"/>
     </target>
 
     <target depends="clean" name="cleanall"/>
@@ -31,7 +57,7 @@
 
     <target depends="init" name="build-project">
         <echo message="${ant.project.name}: ${ant.file}"/>
-        <javac includeantruntime="true" debug="true" debuglevel="${debuglevel}" destdir="bin" source="${source}" target="${target}">
+        <javac includeantruntime="true" debug="true" debuglevel="${debuglevel}" destdir="${build}" source="${source}" target="${target}">
             <src path="src"/>
             <classpath refid="hidapi.classpath"/>
         </javac>
@@ -50,7 +76,7 @@
         <arg value="-private" />
         <arg value="-s" />
         <arg value="-classpath" />
-        <arg value="bin" />
+        <arg value="${build}" />
         <arg value="com.codeminders.hidapi.HIDDevice" />
       </exec>
 
@@ -58,7 +84,7 @@
         <arg value="-private" />
         <arg value="-s" />
         <arg value="-classpath" />
-        <arg value="bin" />
+        <arg value="${build}" />
         <arg value="com.codeminders.hidapi.HIDManager" />
       </exec>
 
@@ -66,7 +92,7 @@
         <arg value="-private" />
         <arg value="-s" />
         <arg value="-classpath" />
-        <arg value="bin" />
+        <arg value="${build}" />
         <arg value="com.codeminders.hidapi.HIDDeviceInfo" />
       </exec>
 
@@ -78,37 +104,84 @@
             <jvmarg value="-Djava.library.path=${basedir}/mac"/>
         </java>
     </target>
-
-    <target name="jar" depends="build-project">
-      <jar destfile="bin/hidapi.jar"
-           basedir="bin"
-           includes="com/codeminders/hidapi/**"
-           excludes="**/HIDAPITest.class"
-           >
-           <fileset dir="${basedir}/lib"/>
-      </jar>
-      <jar destfile="bin/hidapi-sourses.jar">
-          <fileset dir="src" includes="**/*.java"/>
-      </jar>
-    </target>
     
-    <target name="javadoc">
+    <target name="dist" depends="build-project" description="generate the distribution">
+
       <javadoc
-         destdir="doc/api"
+         destdir="${dist}/javadoc"
          author="true"
          version="true"
          use="true"
          windowtitle="HID API">
-        
         <fileset dir="src" defaultexcludes="yes">
           <include name="com/codeminders/hidapi/**"/>
           <exclude name="com/codeminders/hidapi/*Test*"/>
         </fileset>
-
       </javadoc>
-      <jar destfile="bin/hidapi-javadoc.jar">
-          <fileset dir="doc/api" />
+      
+      <jar jarfile="${dist}/lib/${artifactId}-${version}-javadoc.jar">
+          <fileset dir="${dist}/javadoc" />
+      </jar>
+      
+      <!-- build the main artifact -->
+      <jar destfile="${dist}/lib/${artifactId}-${version}.jar"
+           basedir="${build}"
+           includes="com/codeminders/hidapi/**"
+           excludes="**/HIDAPITest.class"
+           >
+           <fileset dir="${basedir}/lib">
+	      <exclude name="*.jar"/>
+	   </fileset>  
+      </jar>
+      <!-- build the sources artifact -->
+      <jar destfile="${dist}/lib/${artifactId}-${version}-sources.jar">
+          <fileset dir="src" includes="**/*.java"/>
       </jar>
     </target>
+    
+    <target name="deploy" depends="dist" description="deploy snapshot version to Maven snapshot repository">
+		<artifact:mvn>
+			<arg value="org.apache.maven.plugins:maven-deploy-plugin:2.6:deploy-file" />
+			<arg value="-Durl=${maven-snapshots-repository-url}" />
+			<arg value="-DrepositoryId=${maven-snapshots-repository-id}" />
+			<arg value="-DpomFile=pom.xml" />
+			<arg value="-Dfile=${maven-jar}" />
+		</artifact:mvn>
+        </target>
+
+        <!-- before this, update project version (both build.xml and pom.xml) from SNAPSHOT to RELEASE -->
+	<target name="stage" depends="dist" description="deploy release version to Maven staging repository">
+		<!-- sign and deploy the main artifact -->
+		<artifact:mvn>
+			<arg value="org.apache.maven.plugins:maven-gpg-plugin:1.3:sign-and-deploy-file" />
+			<arg value="-Durl=${maven-staging-repository-url}" />
+			<arg value="-DrepositoryId=${maven-staging-repository-id}" />
+			<arg value="-DpomFile=pom.xml" />
+			<arg value="-Dfile=${maven-jar}" />
+                        <arg value="-Pgpg" />
+		</artifact:mvn>
+
+		<!-- sign and deploy the sources artifact -->
+		<artifact:mvn>
+			<arg value="org.apache.maven.plugins:maven-gpg-plugin:1.3:sign-and-deploy-file" />
+			<arg value="-Durl=${maven-staging-repository-url}" />
+			<arg value="-DrepositoryId=${maven-staging-repository-id}" />
+			<arg value="-DpomFile=pom.xml" />
+			<arg value="-Dfile=${maven-sources-jar}" />
+			<arg value="-Dclassifier=sources" />
+                        <arg value="-Pgpg" />
+		</artifact:mvn>
+
+		<!-- sign and deploy the javadoc artifact -->
+		<artifact:mvn>
+			<arg value="org.apache.maven.plugins:maven-gpg-plugin:1.3:sign-and-deploy-file" />
+			<arg value="-Durl=${maven-staging-repository-url}" />
+			<arg value="-DrepositoryId=${maven-staging-repository-id}" />
+			<arg value="-DpomFile=pom.xml" />
+			<arg value="-Dfile=${maven-javadoc-jar}" />
+			<arg value="-Dclassifier=javadoc" />
+                        <arg value="-Pgpg" />
+		</artifact:mvn>
+	</target>
 
 </project>
